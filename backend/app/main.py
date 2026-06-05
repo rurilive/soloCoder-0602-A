@@ -52,6 +52,9 @@ class RoomManager:
 
     async def broadcast(self, room_id: str, message: dict, sender: WebSocket):
         room = self.get_room(room_id)
+        msg_type = message.get("type")
+        if msg_type not in ("pen", "rectangle"):
+            return
         room.drawings.append(message)
         for connection in room.connections:
             if connection != sender:

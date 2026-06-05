@@ -4,7 +4,7 @@ import { Whiteboard } from './components/Whiteboard';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { Drawing, ToolType } from './types';
 
-const API_BASE = 'http://localhost:1111';
+const API_BASE = `${window.location.protocol}//${window.location.hostname}:1111`;
 
 function App() {
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -46,9 +46,14 @@ function App() {
         if (res.ok) {
           setRoomId(hash);
           setDrawings([]);
+        } else if (res.status === 404) {
+          alert('房间不存在或已失效，将返回首页');
+          window.location.hash = '';
         }
       } catch (e) {
         console.error('Failed to join room:', e);
+        alert('连接服务器失败，将返回首页');
+        window.location.hash = '';
       }
     }
   };
