@@ -24,11 +24,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   const [currentRectangle, setCurrentRectangle] = useState<Drawing | null>(null);
-  const [, setForceRedraw] = useState(0);
   const currentPenPointsRef = useRef<Point[]>([]);
   const currentDrawingIdRef = useRef<string>('');
-  const lastMouseRef = useRef<Point>({ x: 0, y: 0 });
   const panStartRef = useRef<Point>({ x: 0, y: 0 });
+  const redrawRef = useRef<(() => void) | null>(null);
 
   const screenToWorld = useCallback(
     (screenX: number, screenY: number): Point => {
@@ -100,6 +99,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
     ctx.restore();
   }, [drawings, currentRectangle, offset, scale, color, strokeWidth]);
+
+  useEffect(() => {
+    redrawRef.current = redraw;
+  }, [redraw]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -196,7 +199,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       });
     } else if (tool === 'pen') {
       currentPenPointsRef.current.push(worldPos);
-      setForceRedraw((n) => n + 1);
+      requestAnimationFrame(() => redrawRef.current?.());
     }
   };
 
