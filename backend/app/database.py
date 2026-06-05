@@ -3,7 +3,7 @@ import json
 import os
 from typing import List, Dict
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "whiteboard.db")
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "whiteboard.db"))
 
 
 async def init_db():

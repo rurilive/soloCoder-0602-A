@@ -182,17 +182,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       setIsDrawing(true);
       currentDrawingIdRef.current = Date.now().toString();
       currentPenPointsRef.current = [worldPos];
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
-      if (ctx) {
-        ctx.save();
-        ctx.translate(offset.x, offset.y);
-        ctx.scale(scale, scale);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-      }
     }
   };
 
@@ -220,7 +209,15 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
       if (ctx && currentPenPointsRef.current.length >= 2) {
+        ctx.save();
+        ctx.translate(offset.x, offset.y);
+        ctx.scale(scale, scale);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         drawPenSegment(ctx, currentPenPointsRef.current);
+        ctx.restore();
       }
     }
   };
@@ -250,11 +247,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         }
         onDraw(finalDrawing);
       } else if (tool === 'pen' && currentPenPointsRef.current.length >= 2) {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d');
-        if (ctx) {
-          ctx.restore();
-        }
         const finalDrawing: Drawing = {
           id: currentDrawingIdRef.current,
           type: 'pen',

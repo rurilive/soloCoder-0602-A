@@ -32,7 +32,7 @@ function App() {
 
   const handleInit = useCallback((initDrawings: Drawing[]) => {
     setDrawings(initDrawings);
-    undoStackRef.current = [];
+    undoStackRef.current = initDrawings.map((d) => d.id).slice(-MAX_UNDO_STACK);
   }, []);
 
   const handleRoomInvalid = useCallback(() => {

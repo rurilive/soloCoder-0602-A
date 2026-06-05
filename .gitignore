@@ -50,3 +50,6 @@ pnpm-debug.log*
 
 # uv
 .uv/
+
+# Database
+whiteboard.db
