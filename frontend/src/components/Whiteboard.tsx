@@ -24,6 +24,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   const [currentRectangle, setCurrentRectangle] = useState<Drawing | null>(null);
+  const [, setForceRedraw] = useState(0);
   const currentPenPointsRef = useRef<Point[]>([]);
   const currentDrawingIdRef = useRef<string>('');
   const lastMouseRef = useRef<Point>({ x: 0, y: 0 });
@@ -39,17 +40,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       };
     },
     [offset, scale]
-  );
-
-  const drawPenSegment = useCallback(
-    (ctx: CanvasRenderingContext2D, points: Point[]) => {
-      if (points.length < 2) return;
-      ctx.beginPath();
-      ctx.moveTo(points[points.length - 2].x, points[points.length - 2].y);
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-      ctx.stroke();
-    },
-    []
   );
 
   const redraw = useCallback(() => {
@@ -206,19 +196,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       });
     } else if (tool === 'pen') {
       currentPenPointsRef.current.push(worldPos);
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
-      if (ctx && currentPenPointsRef.current.length >= 2) {
-        ctx.save();
-        ctx.translate(offset.x, offset.y);
-        ctx.scale(scale, scale);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        drawPenSegment(ctx, currentPenPointsRef.current);
-        ctx.restore();
-      }
+      setForceRedraw((n) => n + 1);
     }
   };
 

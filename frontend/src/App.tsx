@@ -28,6 +28,7 @@ function App() {
 
   const handleUndoReceived = useCallback((drawingId: string) => {
     setDrawings((prev) => prev.filter((d) => d.id !== drawingId));
+    undoStackRef.current = undoStackRef.current.filter((id) => id !== drawingId);
   }, []);
 
   const handleInit = useCallback((initDrawings: Drawing[]) => {
