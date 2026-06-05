@@ -41,6 +41,16 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     [offset, scale]
   );
 
+  const drawPenSegment = useCallback(
+    (ctx: CanvasRenderingContext2D, p1: Point, p2: Point) => {
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    },
+    []
+  );
+
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -198,8 +208,24 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         height: worldPos.y - currentRectangle.y,
       });
     } else if (tool === 'pen') {
-      currentPenPointsRef.current.push(worldPos);
-      requestAnimationFrame(() => redrawRef.current?.());
+      const points = currentPenPointsRef.current;
+      const prevPoint = points[points.length - 1];
+      points.push(worldPos);
+      if (points.length >= 2) {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (ctx) {
+          ctx.save();
+          ctx.translate(offset.x, offset.y);
+          ctx.scale(scale, scale);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          drawPenSegment(ctx, prevPoint, worldPos);
+          ctx.restore();
+        }
+      }
     }
   };
 
