@@ -95,7 +95,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
     try:
         await room_manager.connect(websocket, room_id)
     except HTTPException:
-        await websocket.close(code=404)
+        await websocket.close(code=4004)
         return
 
     try:

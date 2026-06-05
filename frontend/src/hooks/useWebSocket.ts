@@ -13,7 +13,7 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 3000;
-const ROOM_INVALID_CODE = 404;
+const ROOM_INVALID_CODE = 4004;
 
 export const useWebSocket = ({
   roomId,
