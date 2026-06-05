@@ -23,7 +23,7 @@ echo "  日志文件: $LOG_DIR/backend.log"
 echo ""
 echo "[2/2] 启动前端服务 (端口 1112)..."
 cd "$FRONTEND_DIR"
-nohup npx vite --host 0.0.0.0 --port 1112 > "$LOG_DIR/frontend.log" 2>&1 &
+nohup ./node_modules/.bin/vite --host 0.0.0.0 --port 1112 > "$LOG_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > "$LOG_DIR/frontend.pid"
 echo "  前端服务已启动 (PID: $FRONTEND_PID)"

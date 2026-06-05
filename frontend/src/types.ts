@@ -26,4 +26,9 @@ export interface PenDrawing extends DrawingBase {
 
 export type Drawing = RectangleDrawing | PenDrawing;
 
-export type DrawingMessage = Drawing | { type: 'init'; drawings: Drawing[] };
+export interface UndoMessage {
+  type: 'undo';
+  drawingId: string;
+}
+
+export type DrawingMessage = Drawing | { type: 'init'; drawings: Drawing[] } | UndoMessage;

@@ -1,11 +1,26 @@
 import uuid
 import json
+import asyncio
 from typing import Dict, List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+from app.database import init_db, load_all_rooms, create_room, add_drawing, delete_drawing
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    rooms_data = await load_all_rooms()
+    for room_id, drawings in rooms_data.items():
+        room_manager.rooms[room_id] = Room(room_id)
+        room_manager.rooms[room_id].drawings = drawings
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,9 +42,10 @@ class RoomManager:
     def __init__(self):
         self.rooms: Dict[str, Room] = {}
 
-    def create_room(self) -> str:
+    async def create_room(self) -> str:
         room_id = str(uuid.uuid4())[:8]
         self.rooms[room_id] = Room(room_id)
+        await create_room(room_id)
         return room_id
 
     def get_room(self, room_id: str) -> Room:
@@ -53,12 +69,20 @@ class RoomManager:
     async def broadcast(self, room_id: str, message: dict, sender: WebSocket):
         room = self.get_room(room_id)
         msg_type = message.get("type")
-        if msg_type not in ("pen", "rectangle"):
-            return
-        room.drawings.append(message)
-        for connection in room.connections:
-            if connection != sender:
-                await connection.send_json(message)
+        if msg_type in ("pen", "rectangle"):
+            room.drawings.append(message)
+            asyncio.create_task(add_drawing(room_id, message))
+            for connection in room.connections:
+                if connection != sender:
+                    await connection.send_json(message)
+        elif msg_type == "undo":
+            drawing_id = message.get("drawingId")
+            if drawing_id:
+                room.drawings = [d for d in room.drawings if d.get("id") != drawing_id]
+                asyncio.create_task(delete_drawing(room_id, drawing_id))
+                for connection in room.connections:
+                    if connection != sender:
+                        await connection.send_json(message)
 
 
 room_manager = RoomManager()
@@ -75,8 +99,8 @@ class RoomInfoResponse(BaseModel):
 
 
 @app.post("/api/rooms", response_model=CreateRoomResponse)
-async def create_room():
-    room_id = room_manager.create_room()
+async def create_room_endpoint():
+    room_id = await room_manager.create_room()
     return {"room_id": room_id}
 
 

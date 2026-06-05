@@ -1,9 +1,10 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
-import type { Drawing } from '../types';
+import type { Drawing, UndoMessage } from '../types';
 
 interface UseWebSocketOptions {
   roomId: string;
   onDrawingReceived: (drawing: Drawing) => void;
+  onUndoReceived: (drawingId: string) => void;
   onInit: (drawings: Drawing[]) => void;
   onRoomInvalid?: () => void;
   onReconnectFailed?: () => void;
@@ -18,6 +19,7 @@ const ROOM_INVALID_CODE = 4004;
 export const useWebSocket = ({
   roomId,
   onDrawingReceived,
+  onUndoReceived,
   onInit,
   onRoomInvalid,
   onReconnectFailed,
@@ -57,6 +59,8 @@ export const useWebSocket = ({
         const data = JSON.parse(event.data);
         if (data.type === 'init') {
           onInit(data.drawings);
+        } else if (data.type === 'undo') {
+          onUndoReceived(data.drawingId);
         } else {
           onDrawingReceived(data);
         }
@@ -90,7 +94,7 @@ export const useWebSocket = ({
     };
 
     wsRef.current = ws;
-  }, [roomId, onDrawingReceived, onInit, onRoomInvalid, onReconnectFailed, clearReconnectTimer]);
+  }, [roomId, onDrawingReceived, onUndoReceived, onInit, onRoomInvalid, onReconnectFailed, clearReconnectTimer]);
 
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true;
@@ -107,6 +111,13 @@ export const useWebSocket = ({
     }
   }, []);
 
+  const sendUndo = useCallback((drawingId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const message: UndoMessage = { type: 'undo', drawingId };
+      wsRef.current.send(JSON.stringify(message));
+    }
+  }, []);
+
   useEffect(() => {
     if (roomId) {
       connect();
@@ -114,5 +125,5 @@ export const useWebSocket = ({
     return () => disconnect();
   }, [roomId, connect, disconnect]);
 
-  return { sendDrawing, status, reconnect: connect };
+  return { sendDrawing, sendUndo, status, reconnect: connect };
 };

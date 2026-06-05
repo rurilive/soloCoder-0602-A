@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import './App.css';
 import { Whiteboard } from './components/Whiteboard';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { Drawing, ToolType } from './types';
 
 const API_BASE = `http://${window.location.hostname}:1111`;
+const MAX_UNDO_STACK = 10;
 
 function App() {
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -12,13 +13,26 @@ function App() {
   const [tool, setTool] = useState<ToolType>('pen');
   const [color, setColor] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(3);
+  const undoStackRef = useRef<string[]>([]);
+
+  const addToUndoStack = useCallback((drawingId: string) => {
+    undoStackRef.current.push(drawingId);
+    if (undoStackRef.current.length > MAX_UNDO_STACK) {
+      undoStackRef.current.shift();
+    }
+  }, []);
 
   const handleDrawingReceived = useCallback((drawing: Drawing) => {
     setDrawings((prev) => [...prev, drawing]);
   }, []);
 
+  const handleUndoReceived = useCallback((drawingId: string) => {
+    setDrawings((prev) => prev.filter((d) => d.id !== drawingId));
+  }, []);
+
   const handleInit = useCallback((initDrawings: Drawing[]) => {
     setDrawings(initDrawings);
+    undoStackRef.current = [];
   }, []);
 
   const handleRoomInvalid = useCallback(() => {
@@ -33,13 +47,35 @@ function App() {
     window.location.hash = '';
   }, []);
 
-  const { sendDrawing, status } = useWebSocket({
+  const { sendDrawing, sendUndo, status } = useWebSocket({
     roomId: roomId || '',
     onDrawingReceived: handleDrawingReceived,
+    onUndoReceived: handleUndoReceived,
     onInit: handleInit,
     onRoomInvalid: handleRoomInvalid,
     onReconnectFailed: handleReconnectFailed,
   });
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    const drawingId = undoStackRef.current.pop();
+    if (drawingId) {
+      setDrawings((prev) => prev.filter((d) => d.id !== drawingId));
+      sendUndo(drawingId);
+    }
+  }, [sendUndo]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.repeat) {
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo]);
 
   const createRoom = async () => {
     try {
@@ -78,6 +114,7 @@ function App() {
 
   const handleDraw = (drawing: Drawing) => {
     setDrawings((prev) => [...prev, drawing]);
+    addToUndoStack(drawing.id);
     sendDrawing(drawing);
   };
 
