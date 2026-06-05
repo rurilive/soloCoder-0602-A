@@ -5,17 +5,22 @@ interface UseWebSocketOptions {
   roomId: string;
   onDrawingReceived: (drawing: Drawing) => void;
   onInit: (drawings: Drawing[]) => void;
+  onRoomInvalid?: () => void;
+  onReconnectFailed?: () => void;
 }
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 3000;
+const ROOM_INVALID_CODE = 404;
 
 export const useWebSocket = ({
   roomId,
   onDrawingReceived,
   onInit,
+  onRoomInvalid,
+  onReconnectFailed,
 }: UseWebSocketOptions) => {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -36,9 +41,8 @@ export const useWebSocket = ({
     clearReconnectTimer();
     manualDisconnectRef.current = false;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    const wsUrl = `${protocol}//${host}:1111/ws/${roomId}`;
+    const wsUrl = `ws://${host}:1111/ws/${roomId}`;
 
     setStatus('connecting');
     const ws = new WebSocket(wsUrl);
@@ -61,13 +65,23 @@ export const useWebSocket = ({
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setStatus('disconnected');
-      if (!manualDisconnectRef.current && reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
-        reconnectCountRef.current += 1;
-        reconnectTimerRef.current = window.setTimeout(() => {
-          connect();
-        }, RECONNECT_DELAY);
+
+      if (event.code === ROOM_INVALID_CODE) {
+        onRoomInvalid?.();
+        return;
+      }
+
+      if (!manualDisconnectRef.current) {
+        if (reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
+          reconnectCountRef.current += 1;
+          reconnectTimerRef.current = window.setTimeout(() => {
+            connect();
+          }, RECONNECT_DELAY);
+        } else {
+          onReconnectFailed?.();
+        }
       }
     };
 
@@ -76,7 +90,7 @@ export const useWebSocket = ({
     };
 
     wsRef.current = ws;
-  }, [roomId, onDrawingReceived, onInit, clearReconnectTimer]);
+  }, [roomId, onDrawingReceived, onInit, onRoomInvalid, onReconnectFailed, clearReconnectTimer]);
 
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true;

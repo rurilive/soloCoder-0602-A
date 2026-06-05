@@ -4,7 +4,7 @@ import { Whiteboard } from './components/Whiteboard';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { Drawing, ToolType } from './types';
 
-const API_BASE = `${window.location.protocol}//${window.location.hostname}:1111`;
+const API_BASE = `http://${window.location.hostname}:1111`;
 
 function App() {
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -21,10 +21,24 @@ function App() {
     setDrawings(initDrawings);
   }, []);
 
+  const handleRoomInvalid = useCallback(() => {
+    alert('房间已失效，将返回首页');
+    setRoomId(null);
+    window.location.hash = '';
+  }, []);
+
+  const handleReconnectFailed = useCallback(() => {
+    alert('连接服务器失败，将返回首页');
+    setRoomId(null);
+    window.location.hash = '';
+  }, []);
+
   const { sendDrawing, status } = useWebSocket({
     roomId: roomId || '',
     onDrawingReceived: handleDrawingReceived,
     onInit: handleInit,
+    onRoomInvalid: handleRoomInvalid,
+    onReconnectFailed: handleReconnectFailed,
   });
 
   const createRoom = async () => {
