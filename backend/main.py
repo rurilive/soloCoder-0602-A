@@ -121,6 +121,7 @@ async def simulate_build(build_id: str, project: dict):
     for step_idx, step in enumerate(project["steps"]):
         if build_failed:
             build["steps"][step_idx]["status"] = "skipped"
+            await save_data(_, builds)
             await manager.broadcast(build_id, {
                 "type": "step_skip",
                 "step_index": step_idx,

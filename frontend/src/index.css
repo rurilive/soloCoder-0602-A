@@ -217,6 +217,11 @@ body {
   color: white;
 }
 
+.status-skipped {
+  background: #6e7681;
+  color: white;
+}
+
 .build-item {
   background: #161b22;
   border: 1px solid #30363d;

@@ -44,6 +44,17 @@ export default function BuildDetail() {
         }
         return newSteps
       })
+    } else if (data.type === 'step_skip') {
+      setSteps(prev => {
+        const newSteps = [...prev]
+        if (newSteps[data.step_index]) {
+          newSteps[data.step_index] = {
+            ...newSteps[data.step_index],
+            status: 'skipped'
+          }
+        }
+        return newSteps
+      })
     }
   }, [])
 
@@ -149,7 +160,8 @@ export default function BuildDetail() {
               <span className={`status-badge status-${step.status || 'pending'}`}>
                 {(step.status || 'pending') === 'pending' ? '等待中' :
                  (step.status || 'pending') === 'running' ? '运行中' :
-                 (step.status || 'pending') === 'success' ? '成功' : '失败'}
+                 (step.status || 'pending') === 'success' ? '成功' :
+                 (step.status || 'pending') === 'skipped' ? '已跳过' : '失败'}
               </span>
             </div>
           ))}
