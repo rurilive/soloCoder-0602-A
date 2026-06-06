@@ -1,43 +1,53 @@
 #!/bin/bash
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$PROJECT_DIR/backend"
-FRONTEND_DIR="$PROJECT_DIR/frontend"
-LOG_DIR="$PROJECT_DIR/logs"
-
-mkdir -p "$LOG_DIR"
-
-echo "======================================"
-echo "  启动实时协作白板服务"
-echo "======================================"
+echo "========================================"
+echo "       在线考试系统 - 启动脚本"
+echo "========================================"
 
 echo ""
-echo "[1/2] 启动后端服务 (端口 1111)..."
-cd "$BACKEND_DIR"
-nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 1111 > "$LOG_DIR/backend.log" 2>&1 &
+echo "检查后端依赖..."
+cd backend
+if [ ! -d ".venv" ]; then
+    echo "正在安装后端依赖..."
+    uv sync
+fi
+
+echo ""
+echo "初始化数据库..."
+uv run python init_data.py
+
+echo ""
+echo "启动后端服务 (端口: 1111)..."
+uv run uvicorn app.main:app --host 0.0.0.0 --port 1111 --reload &
 BACKEND_PID=$!
-echo $BACKEND_PID > "$LOG_DIR/backend.pid"
-echo "  后端服务已启动 (PID: $BACKEND_PID)"
-echo "  日志文件: $LOG_DIR/backend.log"
 
 echo ""
-echo "[2/2] 启动前端服务 (端口 1112)..."
-cd "$FRONTEND_DIR"
-nohup ./node_modules/.bin/vite --host 0.0.0.0 --port 1112 > "$LOG_DIR/frontend.log" 2>&1 &
+echo "检查前端依赖..."
+cd ../frontend
+if [ ! -d "node_modules" ]; then
+    echo "正在安装前端依赖..."
+    npm install
+fi
+
+echo ""
+echo "启动前端服务 (端口: 1112)..."
+npm run dev &
 FRONTEND_PID=$!
-echo $FRONTEND_PID > "$LOG_DIR/frontend.pid"
-echo "  前端服务已启动 (PID: $FRONTEND_PID)"
-echo "  日志文件: $LOG_DIR/frontend.log"
 
 echo ""
-echo "======================================"
-echo "  服务启动完成！"
-echo "======================================"
+echo "========================================"
+echo "服务启动完成！"
+echo "后端 API: http://localhost:1111"
+echo "前端界面: http://localhost:1112"
+echo "========================================"
 echo ""
-echo "  前端地址: http://localhost:1112"
-echo "  后端地址: http://localhost:1111"
+echo "默认测试账号："
+echo "教师 - 用户名: teacher, 密码: 123456"
+echo "学生 - 用户名: student1, 密码: 123456"
+echo "学生 - 用户名: student2, 密码: 123456"
 echo ""
-echo "  查看后端日志: tail -f $LOG_DIR/backend.log"
-echo "  查看前端日志: tail -f $LOG_DIR/frontend.log"
-echo "  停止服务:   ./stop.sh"
-echo ""
+echo "按 Ctrl+C 停止所有服务"
+
+trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; echo '服务已停止'" EXIT
+
+wait
