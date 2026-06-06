@@ -29,6 +29,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
+  const offsetRef = useRef({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
   const currentPenPointsRef = useRef<Point[]>([]);
   const currentRectangleRef = useRef<{
     id: string;
@@ -46,21 +48,21 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return { x: 0, y: 0 };
       return {
-        x: (screenX - rect.left - offset.x) / scale,
-        y: (screenY - rect.top - offset.y) / scale,
+        x: (screenX - rect.left - offsetRef.current.x) / scaleRef.current,
+        y: (screenY - rect.top - offsetRef.current.y) / scaleRef.current,
       };
     },
-    [offset, scale]
+    []
   );
 
   const worldToScreen = useCallback(
     (worldX: number, worldY: number): Point => {
       return {
-        x: worldX * scale + offset.x,
-        y: worldY * scale + offset.y,
+        x: worldX * scaleRef.current + offsetRef.current.x,
+        y: worldY * scaleRef.current + offsetRef.current.y,
       };
     },
-    [offset, scale]
+    []
   );
 
   const drawPenSegment = useCallback(
@@ -118,10 +120,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
+    const currentOffset = offsetRef.current;
+    const currentScale = scaleRef.current;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
-    ctx.translate(offset.x, offset.y);
-    ctx.scale(scale, scale);
+    ctx.translate(currentOffset.x, currentOffset.y);
+    ctx.scale(currentScale, currentScale);
 
     for (const drawing of drawings) {
       ctx.strokeStyle = drawing.color;
@@ -168,7 +173,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     ctx.restore();
 
     drawCursors(ctx);
-  }, [drawings, offset, scale, color, strokeWidth, drawCursors]);
+  }, [drawings, color, strokeWidth, drawCursors]);
 
   useEffect(() => {
     redrawRef.current = redraw;
@@ -251,10 +256,12 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     onCursorMove(worldPos.x, worldPos.y);
 
     if (isPanning) {
-      setOffset({
+      const newOffset = {
         x: e.clientX - panStartRef.current.x,
         y: e.clientY - panStartRef.current.y,
-      });
+      };
+      offsetRef.current = newOffset;
+      setOffset(newOffset);
       return;
     }
 
@@ -273,8 +280,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         const ctx = canvas?.getContext('2d');
         if (ctx) {
           ctx.save();
-          ctx.translate(offset.x, offset.y);
-          ctx.scale(scale, scale);
+          ctx.translate(offsetRef.current.x, offsetRef.current.y);
+          ctx.scale(scaleRef.current, scaleRef.current);
           ctx.strokeStyle = color;
           ctx.lineWidth = strokeWidth;
           ctx.lineCap = 'round';
@@ -340,7 +347,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.min(Math.max(scale * delta, 0.1), 5);
+    const newScale = Math.min(Math.max(scaleRef.current * delta, 0.1), 5);
 
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -348,10 +355,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    setOffset({
-      x: mouseX - ((mouseX - offset.x) * newScale) / scale,
-      y: mouseY - ((mouseY - offset.y) * newScale) / scale,
-    });
+    const newOffset = {
+      x: mouseX - ((mouseX - offsetRef.current.x) * newScale) / scaleRef.current,
+      y: mouseY - ((mouseY - offsetRef.current.y) * newScale) / scaleRef.current,
+    };
+
+    offsetRef.current = newOffset;
+    scaleRef.current = newScale;
+    setOffset(newOffset);
     setScale(newScale);
   };
 
