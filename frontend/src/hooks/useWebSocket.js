@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 
 const WS_BASE = 'ws://localhost:1111'
-const MAX_RECONNECT_ATTEMPTS = 10
+const MAX_RECONNECT_ATTEMPTS = 3
 const RECONNECT_DELAY = 2000
 
 export function useWebSocket(buildId, onMessage) {
@@ -46,11 +46,10 @@ export function useWebSocket(buildId, onMessage) {
         if (shouldReconnectRef.current && reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
           setReconnecting(true)
           reconnectCountRef.current += 1
-          const delay = RECONNECT_DELAY * Math.min(reconnectCountRef.current, 5)
           
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()
-          }, delay)
+          }, RECONNECT_DELAY)
         } else {
           setReconnecting(false)
         }

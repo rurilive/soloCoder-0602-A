@@ -12,6 +12,7 @@ export default function ProjectDetail() {
   const [editData, setEditData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [actionError, setActionError] = useState(null)
 
   useEffect(() => {
     loadData()
@@ -61,11 +62,13 @@ export default function ProjectDetail() {
       steps: [...project.steps]
     })
     setEditing(true)
+    setActionError(null)
   }
 
   function cancelEdit() {
     setEditing(false)
     setEditData(null)
+    setActionError(null)
   }
 
   function addStep() {
@@ -92,6 +95,7 @@ export default function ProjectDetail() {
 
   async function saveEdit(e) {
     e.preventDefault()
+    setActionError(null)
     try {
       const validSteps = editData.steps.filter(s => s.name && s.command)
       await updateProject(projectId, {
@@ -100,9 +104,10 @@ export default function ProjectDetail() {
       })
       setEditing(false)
       setEditData(null)
+      setActionError(null)
       loadData()
     } catch (err) {
-      alert(err.message)
+      setActionError(err.message)
     }
   }
 
@@ -135,6 +140,35 @@ export default function ProjectDetail() {
       {editing ? (
         <div className="card">
           <h2>编辑项目</h2>
+          {actionError && (
+            <div style={{
+              background: 'rgba(218, 54, 51, 0.1)',
+              border: '1px solid #da3633',
+              borderRadius: '6px',
+              padding: '12px',
+              marginBottom: '16px',
+              color: '#f85149',
+              fontSize: '14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span>{actionError}</span>
+              <button
+                type="button"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#f85149',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
+                onClick={() => setActionError(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <form onSubmit={saveEdit}>
             <div className="form-group">
               <label>项目名称</label>
@@ -202,6 +236,35 @@ export default function ProjectDetail() {
       ) : (
         <div className="card">
           <h2>{project.name}</h2>
+          {actionError && (
+            <div style={{
+              background: 'rgba(218, 54, 51, 0.1)',
+              border: '1px solid #da3633',
+              borderRadius: '6px',
+              padding: '12px',
+              marginBottom: '16px',
+              color: '#f85149',
+              fontSize: '14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span>{actionError}</span>
+              <button
+                type="button"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#f85149',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
+                onClick={() => setActionError(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <p style={{ color: '#8b949e', marginBottom: '16px' }}>
             {project.description || '暂无描述'}
           </p>
