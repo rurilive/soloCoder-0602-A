@@ -147,6 +147,7 @@ def submit_exam(
 
     total_score = 0
     answers = submit_data.answers
+    answers_with_judge = dict(answers)
 
     for eq in exam_questions:
         q = eq.question
@@ -160,6 +161,7 @@ def submit_exam(
                     memory_limit=q.memory_limit
                 )
                 total_score += judge_result["total_score"]
+                answers_with_judge[f"{q.id}_judge"] = judge_result
         else:
             user_answer = answers.get(str(q.id), [])
             if not isinstance(user_answer, list):
@@ -170,7 +172,7 @@ def submit_exam(
 
     participation.submitted_at = now
     participation.score = total_score
-    participation.answers = answers
+    participation.answers = answers_with_judge
     participation.status = "submitted"
     db.commit()
 
@@ -207,17 +209,10 @@ def get_exam_result(
         q = eq.question
         if q.question_type == "programming":
             user_code = participation.answers.get(str(q.id), "") if participation.answers else ""
-            judge_details = None
-            if q.test_cases:
-                judge_result = run_python_code(
-                    code=user_code,
-                    test_cases=q.test_cases,
-                    time_limit=q.time_limit,
-                    memory_limit=q.memory_limit
-                )
-                judge_details = judge_result
-                is_correct = judge_result["all_passed"]
-                user_score = judge_result["total_score"]
+            judge_details = participation.answers.get(f"{q.id}_judge", None) if participation.answers else None
+            if judge_details:
+                is_correct = judge_details["all_passed"]
+                user_score = judge_details["total_score"]
             else:
                 is_correct = False
                 user_score = 0
