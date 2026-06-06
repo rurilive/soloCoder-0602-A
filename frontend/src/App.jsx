@@ -1,40 +1,26 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { Layout } from 'antd'
-import Login from './pages/Login'
-import TeacherLayout from './components/TeacherLayout'
-import StudentLayout from './components/StudentLayout'
-import QuestionBank from './pages/teacher/QuestionBank'
-import ExamCreate from './pages/teacher/ExamCreate'
-import ExamList from './pages/teacher/ExamList'
-import ExamDetail from './pages/teacher/ExamDetail'
-import StudentExamList from './pages/student/StudentExamList'
-import ExamPage from './pages/student/ExamPage'
-import ExamResult from './pages/student/ExamResult'
-
-const { Content } = Layout
+import { Routes, Route, Link } from 'react-router-dom'
+import Home from './pages/Home.jsx'
+import ProjectDetail from './pages/ProjectDetail.jsx'
+import NewProject from './pages/NewProject.jsx'
+import BuildDetail from './pages/BuildDetail.jsx'
 
 function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      
-      <Route path="/teacher" element={<TeacherLayout />}>
-        <Route index element={<Navigate to="questions" replace />} />
-        <Route path="questions" element={<QuestionBank />} />
-        <Route path="exams" element={<ExamList />} />
-        <Route path="exams/create" element={<ExamCreate />} />
-        <Route path="exams/:id" element={<ExamDetail />} />
-      </Route>
-      
-      <Route path="/student" element={<StudentLayout />}>
-        <Route index element={<Navigate to="exams" replace />} />
-        <Route path="exams" element={<StudentExamList />} />
-        <Route path="exams/:id" element={<ExamPage />} />
-        <Route path="exams/:id/result" element={<ExamResult />} />
-      </Route>
-      
-      <Route path="/" element={<Navigate to="/login" replace />} />
-    </Routes>
+    <div className="container">
+      <div className="header">
+        <h1>CI/CD 可视化面板</h1>
+      </div>
+      <nav className="nav">
+        <Link to="/">项目列表</Link>
+        <Link to="/projects/new">新建项目</Link>
+      </nav>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/projects/new" element={<NewProject />} />
+        <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        <Route path="/builds/:buildId" element={<BuildDetail />} />
+      </Routes>
+    </div>
   )
 }
 

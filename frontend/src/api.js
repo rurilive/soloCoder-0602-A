@@ -1,62 +1,62 @@
-import axios from 'axios'
+const API_BASE = 'http://localhost:1111'
 
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000
-})
-
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  }
-)
-
-export const authAPI = {
-  login: (data) => api.post('/auth/login', data),
-  register: (data) => api.post('/auth/register', data),
-  getMe: () => api.get('/auth/me')
+export async function getProjects() {
+  const res = await fetch(`${API_BASE}/api/projects`)
+  return res.json()
 }
 
-export const questionAPI = {
-  list: (params) => api.get('/questions', { params }),
-  create: (data) => api.post('/questions', data),
-  update: (id, data) => api.put(`/questions/${id}`, data),
-  delete: (id) => api.delete(`/questions/${id}`),
-  get: (id) => api.get(`/questions/${id}`)
+export async function getProject(projectId) {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}`)
+  return res.json()
 }
 
-export const examAPI = {
-  list: () => api.get('/exams'),
-  create: (data) => api.post('/exams', data),
-  get: (id) => api.get(`/exams/${id}`),
-  delete: (id) => api.delete(`/exams/${id}`),
-  getParticipations: (id) => api.get(`/exams/${id}/participations`)
+export async function createProject(data) {
+  const res = await fetch(`${API_BASE}/api/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  return res.json()
 }
 
-export const studentAPI = {
-  getExams: () => api.get('/student/exams'),
-  startExam: (examId) => api.post(`/student/exams/${examId}/start`),
-  submitExam: (examId, data) => api.post(`/student/exams/${examId}/submit`, data),
-  getResult: (examId) => api.get(`/student/exams/${examId}/result`),
-  listStudents: () => api.get('/student/students'),
-  runCode: (data) => api.post('/student/run-code', data)
+export async function updateProject(projectId, data) {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  return res.json()
 }
 
-export default api
+export async function deleteProject(projectId) {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+    method: 'DELETE'
+  })
+  return res.json()
+}
+
+export async function triggerBuild(projectId) {
+  const res = await fetch(`${API_BASE}/api/builds`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId })
+  })
+  return res.json()
+}
+
+export async function getBuilds(projectId = null) {
+  const url = projectId
+    ? `${API_BASE}/api/builds?project_id=${projectId}`
+    : `${API_BASE}/api/builds`
+  const res = await fetch(url)
+  return res.json()
+}
+
+export async function getBuild(buildId) {
+  const res = await fetch(`${API_BASE}/api/builds/${buildId}`)
+  return res.json()
+}
+
+export function getBuildWebSocket(buildId) {
+  return new WebSocket(`ws://localhost:1111/ws/builds/${buildId}`)
+}
