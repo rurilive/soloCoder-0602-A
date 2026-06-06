@@ -55,7 +55,8 @@ export const studentAPI = {
   startExam: (examId) => api.post(`/student/exams/${examId}/start`),
   submitExam: (examId, data) => api.post(`/student/exams/${examId}/submit`, data),
   getResult: (examId) => api.get(`/student/exams/${examId}/result`),
-  listStudents: () => api.get('/student/students')
+  listStudents: () => api.get('/student/students'),
+  runCode: (data) => api.post('/student/run-code', data)
 }
 
 export default api

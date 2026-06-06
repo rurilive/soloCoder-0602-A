@@ -2,10 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
+from pydantic import BaseModel
 from ..database import get_db
 from .. import models, schemas, auth
+from ..judge import run_python_code
 
 router = APIRouter(prefix="/api/student", tags=["学生端"])
+
+
+class CodeRunRequest(BaseModel):
+    code: str
+    test_cases: List[dict]
 
 
 @router.get("/exams", response_model=List[schemas.StudentExamListResponse])
@@ -85,13 +92,20 @@ def start_exam(
     questions = []
     for eq in exam_questions:
         q = eq.question
-        questions.append({
+        q_data = {
             "id": q.id,
             "question_type": q.question_type,
             "content": q.content,
-            "options": q.options,
             "score": q.score
-        })
+        }
+        if q.question_type == "programming":
+            q_data["code_template"] = q.code_template
+            q_data["time_limit"] = q.time_limit
+            q_data["memory_limit"] = q.memory_limit
+            q_data["sample_test_cases"] = [tc for tc in (q.test_cases or []) if tc.get("is_sample")]
+        else:
+            q_data["options"] = q.options
+        questions.append(q_data)
 
     return {
         "participation_id": participation.id,
@@ -136,12 +150,23 @@ def submit_exam(
 
     for eq in exam_questions:
         q = eq.question
-        user_answer = answers.get(str(q.id), [])
-        if not isinstance(user_answer, list):
-            user_answer = [user_answer]
-        correct_answer = q.answer
-        if sorted(user_answer) == sorted(correct_answer):
-            total_score += q.score
+        if q.question_type == "programming":
+            user_code = answers.get(str(q.id), "")
+            if q.test_cases:
+                judge_result = run_python_code(
+                    code=user_code,
+                    test_cases=q.test_cases,
+                    time_limit=q.time_limit,
+                    memory_limit=q.memory_limit
+                )
+                total_score += judge_result["total_score"]
+        else:
+            user_answer = answers.get(str(q.id), [])
+            if not isinstance(user_answer, list):
+                user_answer = [user_answer]
+            correct_answer = q.answer
+            if correct_answer and sorted(user_answer) == sorted(correct_answer):
+                total_score += q.score
 
     participation.submitted_at = now
     participation.score = total_score
@@ -180,20 +205,48 @@ def get_exam_result(
     questions = []
     for eq in exam_questions:
         q = eq.question
-        user_answer = participation.answers.get(str(q.id), []) if participation.answers else []
-        if not isinstance(user_answer, list):
-            user_answer = [user_answer]
-        is_correct = sorted(user_answer) == sorted(q.answer)
-        questions.append({
-            "id": q.id,
-            "question_type": q.question_type,
-            "content": q.content,
-            "options": q.options,
-            "score": q.score,
-            "user_answer": user_answer,
-            "correct_answer": q.answer,
-            "is_correct": is_correct
-        })
+        if q.question_type == "programming":
+            user_code = participation.answers.get(str(q.id), "") if participation.answers else ""
+            judge_details = None
+            if q.test_cases:
+                judge_result = run_python_code(
+                    code=user_code,
+                    test_cases=q.test_cases,
+                    time_limit=q.time_limit,
+                    memory_limit=q.memory_limit
+                )
+                judge_details = judge_result
+                is_correct = judge_result["all_passed"]
+                user_score = judge_result["total_score"]
+            else:
+                is_correct = False
+                user_score = 0
+            questions.append({
+                "id": q.id,
+                "question_type": q.question_type,
+                "content": q.content,
+                "score": q.score,
+                "user_answer": user_code,
+                "is_correct": is_correct,
+                "user_score": user_score,
+                "judge_details": judge_details,
+                "test_cases": q.test_cases
+            })
+        else:
+            user_answer = participation.answers.get(str(q.id), []) if participation.answers else []
+            if not isinstance(user_answer, list):
+                user_answer = [user_answer]
+            is_correct = q.answer and sorted(user_answer) == sorted(q.answer)
+            questions.append({
+                "id": q.id,
+                "question_type": q.question_type,
+                "content": q.content,
+                "options": q.options,
+                "score": q.score,
+                "user_answer": user_answer,
+                "correct_answer": q.answer,
+                "is_correct": is_correct
+            })
 
     return {
         "exam": participation.exam,
@@ -202,6 +255,23 @@ def get_exam_result(
         "submitted_at": participation.submitted_at,
         "questions": questions
     }
+
+
+@router.post("/run-code")
+def run_code(
+    request: CodeRunRequest,
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    try:
+        result = run_python_code(
+            code=request.code,
+            test_cases=request.test_cases,
+            time_limit=5,
+            memory_limit=256
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/students", response_model=List[schemas.UserResponse])

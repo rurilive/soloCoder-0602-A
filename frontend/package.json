@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.4.0",
+    "@monaco-editor/react": "^4.7.0",
     "antd": "^5.20.0",
     "axios": "^1.7.0",
     "dayjs": "^1.11.21",
+    "monaco-editor": "^0.55.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0"

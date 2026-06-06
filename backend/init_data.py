@@ -79,6 +79,32 @@ try:
             "answer": [1],
             "score": 10
         },
+        {
+            "question_type": "programming",
+            "content": "编写一个Python程序，读取两个整数a和b，输出它们的和。\n\n输入格式：\n第一行是整数a\n第二行是整数b\n\n输出格式：\n输出a + b的结果",
+            "code_template": "# 请在此处编写代码\na = int(input())\nb = int(input())\n",
+            "test_cases": [
+                {"input": "3\n5\n", "output": "8", "score": 5, "is_sample": True},
+                {"input": "10\n20\n", "output": "30", "score": 5, "is_sample": True},
+                {"input": "-1\n1\n", "output": "0", "score": 5, "is_sample": False},
+                {"input": "0\n0\n", "output": "0", "score": 5, "is_sample": False}
+            ],
+            "time_limit": 5,
+            "memory_limit": 256,
+            "score": 20
+        },
+        {
+            "question_type": "programming",
+            "content": "编写一个Python程序，读取一行整数（用空格分隔），输出其中的最大值。\n\n输入格式：\n一行，包含多个整数，用空格分隔\n\n输出格式：\n输出最大值",
+            "code_template": "# 请在此处编写代码\nnumbers = list(map(int, input().split()))\n",
+            "test_cases": [
+                {"input": "1 3 5 2 4\n", "output": "5", "score": 10, "is_sample": True},
+                {"input": "-1 -5 -3\n", "output": "-1", "score": 10, "is_sample": False}
+            ],
+            "time_limit": 5,
+            "memory_limit": 256,
+            "score": 20
+        },
     ]
 
     for q_data in sample_questions:

@@ -32,11 +32,15 @@ class Token(BaseModel):
 
 
 class QuestionBase(BaseModel):
-    question_type: str = Field(..., description="single, multiple, true_false")
+    question_type: str = Field(..., description="single, multiple, true_false, programming")
     content: str
-    options: List[str]
-    answer: List[int]
+    options: Optional[List[str]] = None
+    answer: Optional[List[int]] = None
     score: int = 10
+    code_template: Optional[str] = None
+    test_cases: Optional[List[dict]] = None
+    time_limit: int = 5
+    memory_limit: int = 256
 
 
 class QuestionCreate(QuestionBase):

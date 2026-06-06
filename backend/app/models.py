@@ -23,10 +23,15 @@ class Question(Base):
     id = Column(Integer, primary_key=True, index=True)
     question_type = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
-    options = Column(JSON, nullable=False)
-    answer = Column(JSON, nullable=False)
+    options = Column(JSON, nullable=True)
+    answer = Column(JSON, nullable=True)
     score = Column(Integer, nullable=False, default=10)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    code_template = Column(Text, nullable=True)
+    test_cases = Column(JSON, nullable=True)
+    time_limit = Column(Integer, default=5)
+    memory_limit = Column(Integer, default=256)
 
     exam_questions = relationship("ExamQuestion", back_populates="question")
 
