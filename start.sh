@@ -7,28 +7,41 @@ FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
 
 mkdir -p "$PID_DIR"
 
+kill_process_group() {
+    local pid_file=$1
+    local name=$2
+    
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file" 2>/dev/null)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            local pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+            if [ -n "$pgid" ] && [ "$pgid" != "0" ]; then
+                kill -TERM -"$pgid" 2>/dev/null
+                sleep 1
+                if kill -0 -"$pgid" 2>/dev/null; then
+                    kill -KILL -"$pgid" 2>/dev/null
+                fi
+            else
+                kill -TERM "$pid" 2>/dev/null
+                sleep 1
+                if kill -0 "$pid" 2>/dev/null; then
+                    kill -KILL "$pid" 2>/dev/null
+                fi
+            fi
+            echo "${name}服务已停止 (PID: $pid)"
+        fi
+        rm -f "$pid_file"
+    fi
+}
+
 cleanup() {
     echo ""
     echo "正在停止服务..."
     
-    if [ -f "$BACKEND_PID_FILE" ]; then
-        BACKEND_PID=$(cat "$BACKEND_PID_FILE" 2>/dev/null)
-        if [ -n "$BACKEND_PID" ] && kill -0 "$BACKEND_PID" 2>/dev/null; then
-            kill "$BACKEND_PID" 2>/dev/null
-            echo "后端服务已停止 (PID: $BACKEND_PID)"
-        fi
-        rm -f "$BACKEND_PID_FILE"
-    fi
+    kill_process_group "$BACKEND_PID_FILE" "后端"
+    kill_process_group "$FRONTEND_PID_FILE" "前端"
     
-    if [ -f "$FRONTEND_PID_FILE" ]; then
-        FRONTEND_PID=$(cat "$FRONTEND_PID_FILE" 2>/dev/null)
-        if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
-            kill "$FRONTEND_PID" 2>/dev/null
-            echo "前端服务已停止 (PID: $FRONTEND_PID)"
-        fi
-        rm -f "$FRONTEND_PID_FILE"
-    fi
-    
+    rmdir "$PID_DIR" 2>/dev/null
     echo "服务已全部停止"
     exit 0
 }
@@ -53,7 +66,7 @@ uv run python init_data.py
 
 echo ""
 echo "启动后端服务 (端口: 1111)..."
-uv run uvicorn app.main:app --host 0.0.0.0 --port 1111 --reload &
+setsid uv run uvicorn app.main:app --host 0.0.0.0 --port 1111 --reload > /dev/null 2>&1 &
 BACKEND_PID=$!
 echo $BACKEND_PID > "$BACKEND_PID_FILE"
 echo "后端服务已启动 (PID: $BACKEND_PID)"
@@ -70,7 +83,7 @@ fi
 
 echo ""
 echo "启动前端服务 (端口: 1112)..."
-npm run dev &
+setsid npm run dev > /dev/null 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > "$FRONTEND_PID_FILE"
 echo "前端服务已启动 (PID: $FRONTEND_PID)"
