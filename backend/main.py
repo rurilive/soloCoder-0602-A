@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -24,6 +25,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 PROJECTS_FILE = os.path.join(DATA_DIR, "projects.json")
 BUILDS_FILE = os.path.join(DATA_DIR, "builds.json")
+
+data_lock = asyncio.Lock()
 
 class BuildStep(BaseModel):
     name: str
@@ -51,26 +54,28 @@ class Build(BaseModel):
     started_at: str
     finished_at: Optional[str] = None
 
-def load_data():
-    if os.path.exists(PROJECTS_FILE):
-        with open(PROJECTS_FILE, "r") as f:
-            projects = json.load(f)
-    else:
-        projects = []
-    
-    if os.path.exists(BUILDS_FILE):
-        with open(BUILDS_FILE, "r") as f:
-            builds = json.load(f)
-    else:
-        builds = []
-    
-    return projects, builds
+async def load_data():
+    async with data_lock:
+        if os.path.exists(PROJECTS_FILE):
+            with open(PROJECTS_FILE, "r") as f:
+                projects = json.load(f)
+        else:
+            projects = []
+        
+        if os.path.exists(BUILDS_FILE):
+            with open(BUILDS_FILE, "r") as f:
+                builds = json.load(f)
+        else:
+            builds = []
+        
+        return projects, builds
 
-def save_data(projects, builds):
-    with open(PROJECTS_FILE, "w") as f:
-        json.dump(projects, f, indent=2)
-    with open(BUILDS_FILE, "w") as f:
-        json.dump(builds, f, indent=2)
+async def save_data(projects, builds):
+    async with data_lock:
+        with open(PROJECTS_FILE, "w") as f:
+            json.dump(projects, f, indent=2)
+        with open(BUILDS_FILE, "w") as f:
+            json.dump(builds, f, indent=2)
 
 class ConnectionManager:
     def __init__(self):
@@ -101,19 +106,30 @@ manager = ConnectionManager()
 build_tasks: Dict[str, asyncio.Task] = {}
 
 async def simulate_build(build_id: str, project: dict):
-    _, builds = load_data()
+    _, builds = await load_data()
     build = next((b for b in builds if b["id"] == build_id), None)
     if not build:
         return
     
     build["status"] = "running"
-    save_data(_, builds)
+    await save_data(_, builds)
     
     await manager.broadcast(build_id, {"type": "status", "status": "running"})
     
+    build_failed = False
+    
     for step_idx, step in enumerate(project["steps"]):
+        if build_failed:
+            build["steps"][step_idx]["status"] = "skipped"
+            await manager.broadcast(build_id, {
+                "type": "step_skip",
+                "step_index": step_idx,
+                "step_name": step["name"]
+            })
+            continue
+        
         build["steps"][step_idx]["status"] = "running"
-        save_data(_, builds)
+        await save_data(_, builds)
         await manager.broadcast(build_id, {
             "type": "step_start",
             "step_index": step_idx,
@@ -126,41 +142,57 @@ async def simulate_build(build_id: str, project: dict):
             "[INFO] Checking dependencies...",
             "[INFO] Downloading packages...",
             "[INFO] Compiling source code...",
-            "[INFO] Running tests...",
-            f"[SUCCESS] Step '{step['name']}' completed successfully"
+            "[INFO] Running tests..."
         ]
         
         for line in log_lines:
             build["logs"].append(line)
-            save_data(_, builds)
+            await save_data(_, builds)
             await manager.broadcast(build_id, {"type": "log", "line": line})
             await asyncio.sleep(0.5)
         
-        build["steps"][step_idx]["status"] = "success"
-        save_data(_, builds)
-        await manager.broadcast(build_id, {
-            "type": "step_end",
-            "step_index": step_idx,
-            "status": "success"
-        })
+        if random.random() < 0.2:
+            build_failed = True
+            error_line = f"[ERROR] Step '{step['name']}' failed: Random failure occurred"
+            build["logs"].append(error_line)
+            build["steps"][step_idx]["status"] = "failed"
+            await save_data(_, builds)
+            await manager.broadcast(build_id, {"type": "log", "line": error_line})
+            await manager.broadcast(build_id, {
+                "type": "step_end",
+                "step_index": step_idx,
+                "status": "failed"
+            })
+            break
+        else:
+            success_line = f"[SUCCESS] Step '{step['name']}' completed successfully"
+            build["logs"].append(success_line)
+            build["steps"][step_idx]["status"] = "success"
+            await save_data(_, builds)
+            await manager.broadcast(build_id, {"type": "log", "line": success_line})
+            await manager.broadcast(build_id, {
+                "type": "step_end",
+                "step_index": step_idx,
+                "status": "success"
+            })
     
-    build["status"] = "success"
+    build["status"] = "failed" if build_failed else "success"
     build["finished_at"] = datetime.now().isoformat()
-    save_data(_, builds)
+    await save_data(_, builds)
     await manager.broadcast(build_id, {
         "type": "status",
-        "status": "success",
+        "status": build["status"],
         "finished_at": build["finished_at"]
     })
 
 @app.get("/api/projects")
 async def get_projects():
-    projects, _ = load_data()
+    projects, _ = await load_data()
     return JSONResponse(content={"projects": projects})
 
 @app.post("/api/projects")
 async def create_project(project: ProjectCreate):
-    projects, builds = load_data()
+    projects, builds = await load_data()
     
     project_id = str(uuid.uuid4())[:8]
     new_project = {
@@ -172,13 +204,13 @@ async def create_project(project: ProjectCreate):
     }
     
     projects.append(new_project)
-    save_data(projects, builds)
+    await save_data(projects, builds)
     
     return JSONResponse(content={"project": new_project})
 
 @app.get("/api/projects/{project_id}")
 async def get_project(project_id: str):
-    projects, _ = load_data()
+    projects, _ = await load_data()
     project = next((p for p in projects if p["id"] == project_id), None)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -186,7 +218,7 @@ async def get_project(project_id: str):
 
 @app.put("/api/projects/{project_id}")
 async def update_project(project_id: str, project: ProjectCreate):
-    projects, builds = load_data()
+    projects, builds = await load_data()
     project_idx = next((i for i, p in enumerate(projects) if p["id"] == project_id), None)
     if project_idx is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -195,20 +227,20 @@ async def update_project(project_id: str, project: ProjectCreate):
     projects[project_idx]["description"] = project.description
     projects[project_idx]["steps"] = [s.model_dump() for s in project.steps]
     
-    save_data(projects, builds)
+    await save_data(projects, builds)
     return JSONResponse(content={"project": projects[project_idx]})
 
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: str):
-    projects, builds = load_data()
+    projects, builds = await load_data()
     projects = [p for p in projects if p["id"] != project_id]
     builds = [b for b in builds if b["project_id"] != project_id]
-    save_data(projects, builds)
+    await save_data(projects, builds)
     return JSONResponse(content={"success": True})
 
 @app.post("/api/builds")
 async def trigger_build(trigger: BuildTrigger):
-    projects, builds = load_data()
+    projects, builds = await load_data()
     project = next((p for p in projects if p["id"] == trigger.project_id), None)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -226,7 +258,7 @@ async def trigger_build(trigger: BuildTrigger):
     }
     
     builds.append(new_build)
-    save_data(projects, builds)
+    await save_data(projects, builds)
     
     task = asyncio.create_task(simulate_build(build_id, project))
     build_tasks[build_id] = task
@@ -235,7 +267,7 @@ async def trigger_build(trigger: BuildTrigger):
 
 @app.get("/api/builds")
 async def get_builds(project_id: Optional[str] = None):
-    _, builds = load_data()
+    _, builds = await load_data()
     if project_id:
         builds = [b for b in builds if b["project_id"] == project_id]
     builds.sort(key=lambda x: x["started_at"], reverse=True)
@@ -243,7 +275,7 @@ async def get_builds(project_id: Optional[str] = None):
 
 @app.get("/api/builds/{build_id}")
 async def get_build(build_id: str):
-    _, builds = load_data()
+    _, builds = await load_data()
     build = next((b for b in builds if b["id"] == build_id), None)
     if not build:
         raise HTTPException(status_code=404, detail="Build not found")
@@ -253,7 +285,7 @@ async def get_build(build_id: str):
 async def websocket_endpoint(websocket: WebSocket, build_id: str):
     await manager.connect(websocket, build_id)
     try:
-        _, builds = load_data()
+        _, builds = await load_data()
         build = next((b for b in builds if b["id"] == build_id), None)
         if build:
             for line in build["logs"]:
