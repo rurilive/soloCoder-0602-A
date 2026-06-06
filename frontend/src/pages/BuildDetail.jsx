@@ -1,6 +1,8 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getBuild, getBuildWebSocket } from '../api.js'
+import { getBuild } from '../api.js'
+import { useWebSocket } from '../hooks/useWebSocket.js'
+import ErrorAlert from '../components/ErrorAlert.jsx'
 
 export default function BuildDetail() {
   const { buildId } = useParams()
@@ -8,16 +10,50 @@ export default function BuildDetail() {
   const [logs, setLogs] = useState([])
   const [steps, setSteps] = useState([])
   const [status, setStatus] = useState('pending')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const logContainerRef = useRef(null)
-  const wsRef = useRef(null)
+
+  const handleWebSocketMessage = useCallback((data) => {
+    if (data.type === 'log') {
+      setLogs(prev => [...prev, data.line])
+    } else if (data.type === 'status') {
+      setStatus(data.status)
+      if (data.status === 'success' || data.status === 'failed') {
+        closeWs()
+      }
+    } else if (data.type === 'step_start') {
+      setSteps(prev => {
+        const newSteps = [...prev]
+        if (newSteps[data.step_index]) {
+          newSteps[data.step_index] = {
+            ...newSteps[data.step_index],
+            status: 'running'
+          }
+        }
+        return newSteps
+      })
+    } else if (data.type === 'step_end') {
+      setSteps(prev => {
+        const newSteps = [...prev]
+        if (newSteps[data.step_index]) {
+          newSteps[data.step_index] = {
+            ...newSteps[data.step_index],
+            status: data.status
+          }
+        }
+        return newSteps
+      })
+    }
+  }, [])
+
+  const { isConnected, reconnecting, close: closeWs } = useWebSocket(
+    (status === 'running' || status === 'pending') ? buildId : null,
+    handleWebSocketMessage
+  )
 
   useEffect(() => {
     loadBuild()
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
   }, [buildId])
 
   useEffect(() => {
@@ -27,59 +63,19 @@ export default function BuildDetail() {
   }, [logs])
 
   async function loadBuild() {
-    const res = await getBuild(buildId)
-    const b = res.build
-    setBuild(b)
-    setLogs(b.logs)
-    setSteps(b.steps)
-    setStatus(b.status)
-
-    if (b.status === 'running' || b.status === 'pending') {
-      connectWebSocket()
-    }
-  }
-
-  function connectWebSocket() {
-    const ws = getBuildWebSocket(buildId)
-    wsRef.current = ws
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      
-      if (data.type === 'log') {
-        setLogs(prev => [...prev, data.line])
-      } else if (data.type === 'status') {
-        setStatus(data.status)
-        if (data.status === 'success' || data.status === 'failed') {
-          ws.close()
-        }
-      } else if (data.type === 'step_start') {
-        setSteps(prev => {
-          const newSteps = [...prev]
-          if (newSteps[data.step_index]) {
-            newSteps[data.step_index] = {
-              ...newSteps[data.step_index],
-              status: 'running'
-            }
-          }
-          return newSteps
-        })
-      } else if (data.type === 'step_end') {
-        setSteps(prev => {
-          const newSteps = [...prev]
-          if (newSteps[data.step_index]) {
-            newSteps[data.step_index] = {
-              ...newSteps[data.step_index],
-              status: data.status
-            }
-          }
-          return newSteps
-        })
-      }
-    }
-
-    ws.onclose = () => {
-      wsRef.current = null
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await getBuild(buildId)
+      const b = res.build
+      setBuild(b)
+      setLogs(b.logs)
+      setSteps(b.steps)
+      setStatus(b.status)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -93,8 +89,22 @@ export default function BuildDetail() {
     return new Date(dateStr).toLocaleString('zh-CN')
   }
 
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="empty-state">
+          <p>加载中...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return <ErrorAlert message={error} onRetry={loadBuild} />
+  }
+
   if (!build) {
-    return <div className="card">加载中...</div>
+    return null
   }
 
   return (
@@ -112,11 +122,18 @@ export default function BuildDetail() {
           <h2 style={{ margin: 0 }}>
             {build.project_name} - 构建 #{build.id}
           </h2>
-          <span className={`status-badge status-${status}`}>
-            {status === 'pending' ? '等待中' :
-             status === 'running' ? '运行中' :
-             status === 'success' ? '成功' : '失败'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {(status === 'running' || status === 'pending') && (
+              <span style={{ fontSize: '12px', color: '#8b949e' }}>
+                {reconnecting ? '🔄 重新连接中...' : isConnected ? '🟢 实时连接' : '🔴 连接断开'}
+              </span>
+            )}
+            <span className={`status-badge status-${status}`}>
+              {status === 'pending' ? '等待中' :
+               status === 'running' ? '运行中' :
+               status === 'success' ? '成功' : '失败'}
+            </span>
+          </div>
         </div>
 
         <div style={{ fontSize: '14px', color: '#8b949e', marginBottom: '16px' }}>
@@ -140,7 +157,14 @@ export default function BuildDetail() {
       </div>
 
       <div className="card">
-        <h2>构建日志</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h2 style={{ margin: 0 }}>构建日志</h2>
+          {reconnecting && (
+            <span style={{ fontSize: '12px', color: '#d29922' }}>
+              🔄 WebSocket 正在重新连接...
+            </span>
+          )}
+        </div>
         <div className="log-container" ref={logContainerRef}>
           {logs.length === 0 ? (
             <div style={{ color: '#8b949e' }}>等待日志输出...</div>

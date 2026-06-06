@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getProjects, getBuilds } from '../api.js'
+import ErrorAlert from '../components/ErrorAlert.jsx'
 
 export default function Home() {
   const [projects, setProjects] = useState([])
   const [recentBuilds, setRecentBuilds] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -12,16 +15,38 @@ export default function Home() {
   }, [])
 
   async function loadData() {
-    const [projectsRes, buildsRes] = await Promise.all([
-      getProjects(),
-      getBuilds()
-    ])
-    setProjects(projectsRes.projects)
-    setRecentBuilds(buildsRes.builds.slice(0, 5))
+    setLoading(true)
+    setError(null)
+    try {
+      const [projectsRes, buildsRes] = await Promise.all([
+        getProjects(),
+        getBuilds()
+      ])
+      setProjects(projectsRes.projects)
+      setRecentBuilds(buildsRes.builds.slice(0, 5))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   function formatDate(dateStr) {
     return new Date(dateStr).toLocaleString('zh-CN')
+  }
+
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="empty-state">
+          <p>加载中...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return <ErrorAlert message={error} onRetry={loadData} />
   }
 
   return (

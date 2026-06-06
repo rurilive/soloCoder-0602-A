@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getProject, deleteProject, triggerBuild, getBuilds, updateProject } from '../api.js'
+import ErrorAlert from '../components/ErrorAlert.jsx'
 
 export default function ProjectDetail() {
   const { projectId } = useParams()
@@ -9,29 +10,47 @@ export default function ProjectDetail() {
   const [builds, setBuilds] = useState([])
   const [editing, setEditing] = useState(false)
   const [editData, setEditData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     loadData()
   }, [projectId])
 
   async function loadData() {
-    const [projectRes, buildsRes] = await Promise.all([
-      getProject(projectId),
-      getBuilds(projectId)
-    ])
-    setProject(projectRes.project)
-    setBuilds(buildsRes.builds)
+    setLoading(true)
+    setError(null)
+    try {
+      const [projectRes, buildsRes] = await Promise.all([
+        getProject(projectId),
+        getBuilds(projectId)
+      ])
+      setProject(projectRes.project)
+      setBuilds(buildsRes.builds)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleTriggerBuild() {
-    const res = await triggerBuild(projectId)
-    navigate(`/builds/${res.build.id}`)
+    try {
+      const res = await triggerBuild(projectId)
+      navigate(`/builds/${res.build.id}`)
+    } catch (err) {
+      alert(err.message)
+    }
   }
 
   async function handleDelete() {
     if (confirm('确定要删除这个项目吗？')) {
-      await deleteProject(projectId)
-      navigate('/')
+      try {
+        await deleteProject(projectId)
+        navigate('/')
+      } catch (err) {
+        alert(err.message)
+      }
     }
   }
 
@@ -73,22 +92,36 @@ export default function ProjectDetail() {
 
   async function saveEdit(e) {
     e.preventDefault()
-    const validSteps = editData.steps.filter(s => s.name && s.command)
-    await updateProject(projectId, {
-      ...editData,
-      steps: validSteps
-    })
-    setEditing(false)
-    setEditData(null)
-    loadData()
+    try {
+      const validSteps = editData.steps.filter(s => s.name && s.command)
+      await updateProject(projectId, {
+        ...editData,
+        steps: validSteps
+      })
+      setEditing(false)
+      setEditData(null)
+      loadData()
+    } catch (err) {
+      alert(err.message)
+    }
   }
 
   function formatDate(dateStr) {
     return new Date(dateStr).toLocaleString('zh-CN')
   }
 
-  if (!project) {
-    return <div className="card">加载中...</div>
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="empty-state">
+          <p>加载中...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return <ErrorAlert message={error} onRetry={loadData} />
   }
 
   return (

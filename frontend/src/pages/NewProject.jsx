@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createProject } from '../api.js'
+import ErrorAlert from '../components/ErrorAlert.jsx'
 
 export default function NewProject() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [steps, setSteps] = useState([{ name: '', command: '' }])
+  const [error, setError] = useState(null)
   const navigate = useNavigate()
 
   function addStep() {
@@ -26,18 +28,36 @@ export default function NewProject() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    const validSteps = steps.filter(s => s.name && s.command)
-    const res = await createProject({
-      name,
-      description,
-      steps: validSteps
-    })
-    navigate(`/projects/${res.project.id}`)
+    setError(null)
+    try {
+      const validSteps = steps.filter(s => s.name && s.command)
+      const res = await createProject({
+        name,
+        description,
+        steps: validSteps
+      })
+      navigate(`/projects/${res.project.id}`)
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
-  return (
+  const formContent = (
     <div className="card">
       <h2>新建项目</h2>
+      {error && (
+        <div style={{
+          background: 'rgba(218, 54, 51, 0.1)',
+          border: '1px solid #da3633',
+          borderRadius: '6px',
+          padding: '12px',
+          marginBottom: '16px',
+          color: '#f85149',
+          fontSize: '14px'
+        }}>
+          {error}
+        </div>
+      )}
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>项目名称</label>
@@ -111,4 +131,6 @@ export default function NewProject() {
       </form>
     </div>
   )
+
+  return formContent
 }
