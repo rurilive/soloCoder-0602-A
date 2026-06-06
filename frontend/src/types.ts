@@ -31,4 +31,31 @@ export interface UndoMessage {
   drawingId: string;
 }
 
-export type DrawingMessage = Drawing | { type: 'init'; drawings: Drawing[] } | UndoMessage;
+export interface ClearMessage {
+  type: 'clear';
+}
+
+export interface CursorPositionMessage {
+  type: 'cursor';
+  userId: string;
+  userNumber: number;
+  userColor: string;
+  x: number;
+  y: number;
+}
+
+export interface UserCursor {
+  userId: string;
+  userNumber: number;
+  userColor: string;
+  x: number;
+  y: number;
+  lastUpdate: number;
+}
+
+export type DrawingMessage =
+  | Drawing
+  | { type: 'init'; drawings: Drawing[] }
+  | UndoMessage
+  | ClearMessage
+  | CursorPositionMessage;

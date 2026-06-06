@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from app.database import init_db, load_all_rooms, create_room, add_drawing, delete_drawing
+from app.database import init_db, load_all_rooms, create_room, add_drawing, delete_drawing, clear_drawings
 
 
 @asynccontextmanager
@@ -83,6 +83,16 @@ class RoomManager:
                 for connection in room.connections:
                     if connection != sender:
                         await connection.send_json(message)
+        elif msg_type == "clear":
+            room.drawings = []
+            asyncio.create_task(clear_drawings(room_id))
+            for connection in room.connections:
+                if connection != sender:
+                    await connection.send_json(message)
+        elif msg_type == "cursor":
+            for connection in room.connections:
+                if connection != sender:
+                    await connection.send_json(message)
 
 
 room_manager = RoomManager()

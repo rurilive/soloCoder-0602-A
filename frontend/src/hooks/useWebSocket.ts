@@ -1,10 +1,12 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
-import type { Drawing, UndoMessage } from '../types';
+import type { Drawing, UndoMessage, ClearMessage, CursorPositionMessage } from '../types';
 
 interface UseWebSocketOptions {
   roomId: string;
   onDrawingReceived: (drawing: Drawing) => void;
   onUndoReceived: (drawingId: string) => void;
+  onClearReceived: () => void;
+  onCursorReceived: (message: CursorPositionMessage) => void;
   onInit: (drawings: Drawing[]) => void;
   onRoomInvalid?: () => void;
   onReconnectFailed?: () => void;
@@ -20,6 +22,8 @@ export const useWebSocket = ({
   roomId,
   onDrawingReceived,
   onUndoReceived,
+  onClearReceived,
+  onCursorReceived,
   onInit,
   onRoomInvalid,
   onReconnectFailed,
@@ -61,6 +65,10 @@ export const useWebSocket = ({
           onInit(data.drawings);
         } else if (data.type === 'undo') {
           onUndoReceived(data.drawingId);
+        } else if (data.type === 'clear') {
+          onClearReceived();
+        } else if (data.type === 'cursor') {
+          onCursorReceived(data);
         } else {
           onDrawingReceived(data);
         }
@@ -94,7 +102,7 @@ export const useWebSocket = ({
     };
 
     wsRef.current = ws;
-  }, [roomId, onDrawingReceived, onUndoReceived, onInit, onRoomInvalid, onReconnectFailed, clearReconnectTimer]);
+  }, [roomId, onDrawingReceived, onUndoReceived, onClearReceived, onCursorReceived, onInit, onRoomInvalid, onReconnectFailed, clearReconnectTimer]);
 
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true;
@@ -118,6 +126,19 @@ export const useWebSocket = ({
     }
   }, []);
 
+  const sendClear = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const message: ClearMessage = { type: 'clear' };
+      wsRef.current.send(JSON.stringify(message));
+    }
+  }, []);
+
+  const sendCursor = useCallback((message: CursorPositionMessage) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message));
+    }
+  }, []);
+
   useEffect(() => {
     if (roomId) {
       connect();
@@ -125,5 +146,5 @@ export const useWebSocket = ({
     return () => disconnect();
   }, [roomId, connect, disconnect]);
 
-  return { sendDrawing, sendUndo, status, reconnect: connect };
+  return { sendDrawing, sendUndo, sendClear, sendCursor, status, reconnect: connect };
 };

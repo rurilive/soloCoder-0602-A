@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import type { Drawing, ToolType, Point } from '../types';
+import type { Drawing, ToolType, Point, UserCursor } from '../types';
 
 interface WhiteboardProps {
   drawings: Drawing[];
@@ -7,6 +7,9 @@ interface WhiteboardProps {
   color: string;
   strokeWidth: number;
   onDraw: (drawing: Drawing) => void;
+  otherCursors: UserCursor[];
+  cursorOpacity: number;
+  onCursorMove: (x: number, y: number) => void;
 }
 
 export const Whiteboard: React.FC<WhiteboardProps> = ({
@@ -15,6 +18,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   color,
   strokeWidth,
   onDraw,
+  otherCursors,
+  cursorOpacity,
+  onCursorMove,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,8 +29,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
-  const [currentRectangle, setCurrentRectangle] = useState<Drawing | null>(null);
   const currentPenPointsRef = useRef<Point[]>([]);
+  const currentRectangleRef = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const currentDrawingIdRef = useRef<string>('');
   const panStartRef = useRef<Point>({ x: 0, y: 0 });
   const redrawRef = useRef<(() => void) | null>(null);
@@ -50,6 +62,45 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     },
     []
   );
+
+  const drawCursors = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.globalAlpha = cursorOpacity;
+    for (const cursor of otherCursors) {
+      ctx.save();
+      ctx.translate(cursor.x, cursor.y);
+
+      ctx.fillStyle = cursor.userColor;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 16);
+      ctx.lineTo(6, 10);
+      ctx.lineTo(10, 16);
+      ctx.lineTo(14, 14);
+      ctx.lineTo(10, 8);
+      ctx.lineTo(16, 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(14, 12, 28, 18);
+      ctx.strokeStyle = cursor.userColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(14, 12, 28, 18);
+
+      ctx.fillStyle = cursor.userColor;
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`#${cursor.userNumber}`, 28, 21);
+
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }, [otherCursors, cursorOpacity]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -80,17 +131,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       }
     }
 
-    if (currentRectangle) {
-      ctx.strokeStyle = currentRectangle.color;
-      ctx.lineWidth = currentRectangle.strokeWidth;
+    if (currentRectangleRef.current) {
+      const rect = currentRectangleRef.current;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.strokeRect(
-        currentRectangle.x,
-        currentRectangle.y,
-        currentRectangle.width,
-        currentRectangle.height
-      );
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
     }
 
     if (currentPenPointsRef.current.length >= 2) {
@@ -107,8 +154,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       ctx.stroke();
     }
 
+    drawCursors(ctx);
+
     ctx.restore();
-  }, [drawings, currentRectangle, offset, scale, color, strokeWidth]);
+  }, [drawings, offset, scale, color, strokeWidth, drawCursors]);
 
   useEffect(() => {
     redrawRef.current = redraw;
@@ -134,7 +183,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
   useEffect(() => {
     redraw();
-  }, [redraw]);
+  }, [redraw, otherCursors, cursorOpacity]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -171,16 +220,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
     if (tool === 'rectangle') {
       setIsDrawing(true);
-      setCurrentRectangle({
-        id: Date.now().toString(),
-        type: 'rectangle',
+      currentDrawingIdRef.current = Date.now().toString();
+      currentRectangleRef.current = {
+        id: currentDrawingIdRef.current,
         x: worldPos.x,
         y: worldPos.y,
         width: 0,
         height: 0,
-        color,
-        strokeWidth,
-      });
+      };
     } else if (tool === 'pen') {
       setIsDrawing(true);
       currentDrawingIdRef.current = Date.now().toString();
@@ -188,7 +235,67 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     }
   };
 
+  const drawRectanglePreview = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(offset.x, offset.y);
+    ctx.scale(scale, scale);
+
+    for (const drawing of drawings) {
+      ctx.strokeStyle = drawing.color;
+      ctx.lineWidth = drawing.strokeWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (drawing.type === 'rectangle') {
+        ctx.strokeRect(drawing.x, drawing.y, drawing.width, drawing.height);
+      } else if (drawing.type === 'pen') {
+        if (drawing.points.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(drawing.points[0].x, drawing.points[0].y);
+        for (let i = 1; i < drawing.points.length; i++) {
+          ctx.lineTo(drawing.points[i].x, drawing.points[i].y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    if (currentRectangleRef.current) {
+      const rect = currentRectangleRef.current;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    }
+
+    if (currentPenPointsRef.current.length >= 2) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const points = currentPenPointsRef.current;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.stroke();
+    }
+
+    drawCursors(ctx);
+
+    ctx.restore();
+  }, [drawings, offset, scale, color, strokeWidth, drawCursors]);
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const worldPos = screenToWorld(e.clientX, e.clientY);
+    onCursorMove(worldPos.x, worldPos.y);
+
     if (isPanning) {
       setOffset({
         x: e.clientX - panStartRef.current.x,
@@ -199,14 +306,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
     if (!isDrawing) return;
 
-    const worldPos = screenToWorld(e.clientX, e.clientY);
-
-    if (tool === 'rectangle' && currentRectangle) {
-      setCurrentRectangle({
-        ...currentRectangle,
-        width: worldPos.x - currentRectangle.x,
-        height: worldPos.y - currentRectangle.y,
-      });
+    if (tool === 'rectangle' && currentRectangleRef.current) {
+      currentRectangleRef.current.width = worldPos.x - currentRectangleRef.current.x;
+      currentRectangleRef.current.height = worldPos.y - currentRectangleRef.current.y;
+      drawRectanglePreview();
     } else if (tool === 'pen') {
       const points = currentPenPointsRef.current;
       const prevPoint = points[points.length - 1];
@@ -236,23 +339,32 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     }
 
     if (isDrawing) {
-      if (tool === 'rectangle' && currentRectangle) {
-        let finalDrawing = currentRectangle;
-        if (currentRectangle.width < 0) {
+      if (tool === 'rectangle' && currentRectangleRef.current) {
+        let finalDrawing = currentRectangleRef.current;
+        if (currentRectangleRef.current.width < 0) {
           finalDrawing = {
-            ...currentRectangle,
-            x: currentRectangle.x + currentRectangle.width,
-            width: Math.abs(currentRectangle.width),
+            ...currentRectangleRef.current,
+            x: currentRectangleRef.current.x + currentRectangleRef.current.width,
+            width: Math.abs(currentRectangleRef.current.width),
           };
         }
-        if (currentRectangle.height < 0) {
+        if (currentRectangleRef.current.height < 0) {
           finalDrawing = {
             ...finalDrawing,
-            y: currentRectangle.y + currentRectangle.height,
-            height: Math.abs(currentRectangle.height),
+            y: finalDrawing.y + finalDrawing.height,
+            height: Math.abs(finalDrawing.height),
           };
         }
-        onDraw(finalDrawing);
+        onDraw({
+          id: finalDrawing.id,
+          type: 'rectangle',
+          x: finalDrawing.x,
+          y: finalDrawing.y,
+          width: finalDrawing.width,
+          height: finalDrawing.height,
+          color,
+          strokeWidth,
+        });
       } else if (tool === 'pen' && currentPenPointsRef.current.length >= 2) {
         const finalDrawing: Drawing = {
           id: currentDrawingIdRef.current,
@@ -266,7 +378,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     }
 
     setIsDrawing(false);
-    setCurrentRectangle(null);
+    currentRectangleRef.current = null;
     currentPenPointsRef.current = [];
     currentDrawingIdRef.current = '';
   };

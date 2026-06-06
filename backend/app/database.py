@@ -78,3 +78,12 @@ async def delete_drawing(room_id: str, drawing_id: str):
             (room_id, drawing_id)
         )
         await db.commit()
+
+
+async def clear_drawings(room_id: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM drawings WHERE room_id = ?",
+            (room_id,)
+        )
+        await db.commit()
