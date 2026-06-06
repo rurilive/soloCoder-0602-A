@@ -36,21 +36,23 @@ export default function ProjectDetail() {
   }
 
   async function handleTriggerBuild() {
+    setActionError(null)
     try {
       const res = await triggerBuild(projectId)
       navigate(`/builds/${res.build.id}`)
     } catch (err) {
-      alert(err.message)
+      setActionError(err.message)
     }
   }
 
   async function handleDelete() {
     if (confirm('确定要删除这个项目吗？')) {
+      setActionError(null)
       try {
         await deleteProject(projectId)
         navigate('/')
       } catch (err) {
-        alert(err.message)
+        setActionError(err.message)
       }
     }
   }
