@@ -262,6 +262,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       };
       offsetRef.current = newOffset;
       setOffset(newOffset);
+      redrawRef.current?.();
       return;
     }
 
@@ -364,6 +365,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     scaleRef.current = newScale;
     setOffset(newOffset);
     setScale(newScale);
+    redrawRef.current?.();
   };
 
   return (
