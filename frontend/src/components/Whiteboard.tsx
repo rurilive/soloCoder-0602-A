@@ -40,6 +40,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const currentDrawingIdRef = useRef<string>('');
   const panStartRef = useRef<Point>({ x: 0, y: 0 });
   const redrawRef = useRef<(() => void) | null>(null);
+  const canvasSnapshotRef = useRef<ImageData | null>(null);
 
   const screenToWorld = useCallback(
     (screenX: number, screenY: number): Point => {
@@ -48,6 +49,16 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       return {
         x: (screenX - rect.left - offset.x) / scale,
         y: (screenY - rect.top - offset.y) / scale,
+      };
+    },
+    [offset, scale]
+  );
+
+  const worldToScreen = useCallback(
+    (worldX: number, worldY: number): Point => {
+      return {
+        x: worldX * scale + offset.x,
+        y: worldY * scale + offset.y,
       };
     },
     [offset, scale]
@@ -66,8 +77,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const drawCursors = useCallback((ctx: CanvasRenderingContext2D) => {
     ctx.globalAlpha = cursorOpacity;
     for (const cursor of otherCursors) {
+      const screenPos = worldToScreen(cursor.x, cursor.y);
       ctx.save();
-      ctx.translate(cursor.x, cursor.y);
+      ctx.translate(screenPos.x, screenPos.y);
 
       ctx.fillStyle = cursor.userColor;
       ctx.strokeStyle = '#ffffff';
@@ -100,7 +112,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       ctx.restore();
     }
     ctx.globalAlpha = 1;
-  }, [otherCursors, cursorOpacity]);
+  }, [otherCursors, cursorOpacity, worldToScreen]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -154,9 +166,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       ctx.stroke();
     }
 
-    drawCursors(ctx);
-
     ctx.restore();
+
+    drawCursors(ctx);
   }, [drawings, offset, scale, color, strokeWidth, drawCursors]);
 
   useEffect(() => {
@@ -228,6 +240,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         width: 0,
         height: 0,
       };
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (canvas && ctx) {
+        canvasSnapshotRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      }
     } else if (tool === 'pen') {
       setIsDrawing(true);
       currentDrawingIdRef.current = Date.now().toString();
@@ -238,59 +255,25 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const drawRectanglePreview = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
+    if (!canvas || !ctx || !canvasSnapshotRef.current || !currentRectangleRef.current) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.putImageData(canvasSnapshotRef.current, 0, 0);
+
     ctx.save();
     ctx.translate(offset.x, offset.y);
     ctx.scale(scale, scale);
 
-    for (const drawing of drawings) {
-      ctx.strokeStyle = drawing.color;
-      ctx.lineWidth = drawing.strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (drawing.type === 'rectangle') {
-        ctx.strokeRect(drawing.x, drawing.y, drawing.width, drawing.height);
-      } else if (drawing.type === 'pen') {
-        if (drawing.points.length < 2) continue;
-        ctx.beginPath();
-        ctx.moveTo(drawing.points[0].x, drawing.points[0].y);
-        for (let i = 1; i < drawing.points.length; i++) {
-          ctx.lineTo(drawing.points[i].x, drawing.points[i].y);
-        }
-        ctx.stroke();
-      }
-    }
-
-    if (currentRectangleRef.current) {
-      const rect = currentRectangleRef.current;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    }
-
-    if (currentPenPointsRef.current.length >= 2) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      const points = currentPenPointsRef.current;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-      }
-      ctx.stroke();
-    }
-
-    drawCursors(ctx);
+    const rect = currentRectangleRef.current;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = strokeWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
 
     ctx.restore();
-  }, [drawings, offset, scale, color, strokeWidth, drawCursors]);
+
+    drawCursors(ctx);
+  }, [offset, scale, color, strokeWidth, drawCursors]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const worldPos = screenToWorld(e.clientX, e.clientY);
