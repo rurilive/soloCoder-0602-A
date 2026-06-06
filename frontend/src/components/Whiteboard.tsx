@@ -40,7 +40,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const currentDrawingIdRef = useRef<string>('');
   const panStartRef = useRef<Point>({ x: 0, y: 0 });
   const redrawRef = useRef<(() => void) | null>(null);
-  const canvasSnapshotRef = useRef<ImageData | null>(null);
 
   const screenToWorld = useCallback(
     (screenX: number, screenY: number): Point => {
@@ -240,40 +239,12 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         width: 0,
         height: 0,
       };
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
-      if (canvas && ctx) {
-        canvasSnapshotRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      }
     } else if (tool === 'pen') {
       setIsDrawing(true);
       currentDrawingIdRef.current = Date.now().toString();
       currentPenPointsRef.current = [worldPos];
     }
   };
-
-  const drawRectanglePreview = useCallback(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx || !canvasSnapshotRef.current || !currentRectangleRef.current) return;
-
-    ctx.putImageData(canvasSnapshotRef.current, 0, 0);
-
-    ctx.save();
-    ctx.translate(offset.x, offset.y);
-    ctx.scale(scale, scale);
-
-    const rect = currentRectangleRef.current;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = strokeWidth;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-
-    ctx.restore();
-
-    drawCursors(ctx);
-  }, [offset, scale, color, strokeWidth, drawCursors]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const worldPos = screenToWorld(e.clientX, e.clientY);
@@ -292,7 +263,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     if (tool === 'rectangle' && currentRectangleRef.current) {
       currentRectangleRef.current.width = worldPos.x - currentRectangleRef.current.x;
       currentRectangleRef.current.height = worldPos.y - currentRectangleRef.current.y;
-      drawRectanglePreview();
+      redrawRef.current?.();
     } else if (tool === 'pen') {
       const points = currentPenPointsRef.current;
       const prevPoint = points[points.length - 1];
