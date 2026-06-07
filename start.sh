@@ -42,12 +42,19 @@ echo "✅ 前端依赖安装完成"
 echo ""
 echo "[3/4] 启动后端服务 (端口 1111)..."
 cd "$BACKEND_DIR"
-uv run uvicorn main:app --host 0.0.0.0 --port 1111 > "$LOG_DIR/backend.log" 2>&1 &
+setsid bash -c "exec uv run uvicorn main:app --host 0.0.0.0 --port 1111 > '$LOG_DIR/backend.log' 2>&1" &
 BACKEND_PID=$!
-echo $BACKEND_PID > "$PID_DIR/backend.pid"
 sleep 2
+
+BACKEND_PGID=""
 if kill -0 $BACKEND_PID 2>/dev/null; then
-    echo "✅ 后端服务已启动 (PID: $BACKEND_PID)"
+    BACKEND_PGID=$(ps -o pgid= $BACKEND_PID 2>/dev/null | tr -d ' ')
+    if [ -z "$BACKEND_PGID" ]; then
+        BACKEND_PGID=$BACKEND_PID
+    fi
+    echo $BACKEND_PID > "$PID_DIR/backend.pid"
+    echo $BACKEND_PGID > "$PID_DIR/backend.pgid"
+    echo "✅ 后端服务已启动 (PID: $BACKEND_PID, PGID: $BACKEND_PGID)"
 else
     echo "❌ 后端服务启动失败"
     cat "$LOG_DIR/backend.log"
@@ -57,12 +64,19 @@ fi
 echo ""
 echo "[4/4] 启动前端服务 (端口 1112)..."
 cd "$FRONTEND_DIR"
-npm run dev > "$LOG_DIR/frontend.log" 2>&1 &
+setsid bash -c "exec npm run dev > '$LOG_DIR/frontend.log' 2>&1" &
 FRONTEND_PID=$!
-echo $FRONTEND_PID > "$PID_DIR/frontend.pid"
-sleep 3
+sleep 4
+
+FRONTEND_PGID=""
 if kill -0 $FRONTEND_PID 2>/dev/null; then
-    echo "✅ 前端服务已启动 (PID: $FRONTEND_PID)"
+    FRONTEND_PGID=$(ps -o pgid= $FRONTEND_PID 2>/dev/null | tr -d ' ')
+    if [ -z "$FRONTEND_PGID" ]; then
+        FRONTEND_PGID=$FRONTEND_PID
+    fi
+    echo $FRONTEND_PID > "$PID_DIR/frontend.pid"
+    echo $FRONTEND_PGID > "$PID_DIR/frontend.pgid"
+    echo "✅ 前端服务已启动 (PID: $FRONTEND_PID, PGID: $FRONTEND_PGID)"
 else
     echo "❌ 前端服务启动失败"
     cat "$LOG_DIR/frontend.log"
