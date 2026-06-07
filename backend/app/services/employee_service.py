@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeSearchResult
 from app.services import department_service
+from app.utils import escape_like_pattern
 
 
 async def get_employees(
@@ -24,12 +25,13 @@ async def get_employees(
         count_query = count_query.where(Employee.department_id.in_(dept_ids))
     
     if search:
-        search_pattern = f"%{search}%"
+        escaped_search = escape_like_pattern(search)
+        search_pattern = f"%{escaped_search}%"
         search_condition = (
-            (Employee.name.like(search_pattern)) |
-            (Employee.email.like(search_pattern)) |
-            (Employee.phone.like(search_pattern)) |
-            (Employee.position.like(search_pattern))
+            (Employee.name.like(search_pattern, escape="\\")) |
+            (Employee.email.like(search_pattern, escape="\\")) |
+            (Employee.phone.like(search_pattern, escape="\\")) |
+            (Employee.position.like(search_pattern, escape="\\"))
         )
         query = query.where(search_condition)
         count_query = count_query.where(search_condition)
@@ -82,14 +84,15 @@ async def delete_employee(db: AsyncSession, emp_id: int) -> bool:
 
 
 async def search_employees(db: AsyncSession, keyword: str) -> List[EmployeeSearchResult]:
-    search_pattern = f"%{keyword}%"
+    escaped_keyword = escape_like_pattern(keyword)
+    search_pattern = f"%{escaped_keyword}%"
     result = await db.execute(
         select(Employee).options(selectinload(Employee.department))
         .where(
-            (Employee.name.like(search_pattern)) |
-            (Employee.email.like(search_pattern)) |
-            (Employee.phone.like(search_pattern)) |
-            (Employee.position.like(search_pattern))
+            (Employee.name.like(search_pattern, escape="\\")) |
+            (Employee.email.like(search_pattern, escape="\\")) |
+            (Employee.phone.like(search_pattern, escape="\\")) |
+            (Employee.position.like(search_pattern, escape="\\"))
         )
         .limit(50)
     )

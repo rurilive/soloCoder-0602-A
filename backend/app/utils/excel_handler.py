@@ -40,7 +40,7 @@ async def import_employees_from_excel(db: AsyncSession, file_content: bytes) -> 
     try:
         df = pd.read_excel(BytesIO(file_content), engine="openpyxl")
     except Exception as e:
-        return {"success": False, "message": f"Excel文件读取失败: {str(e)}", "imported": 0, "failed": 0}
+        return {"success": False, "message": f"Excel文件读取失败: {str(e)}", "imported": 0, "failed": 0, "skipped": 0}
     
     column_mapping = {
         "姓名": "name",
@@ -58,16 +58,23 @@ async def import_employees_from_excel(db: AsyncSession, file_content: bytes) -> 
             mapped_cols[col] = column_mapping[col]
     
     if "name" not in mapped_cols.values():
-        return {"success": False, "message": "Excel中必须包含'姓名'列", "imported": 0, "failed": 0}
+        return {"success": False, "message": "Excel中必须包含'姓名'列", "imported": 0, "failed": 0, "skipped": 0}
     
     dept_map = {}
     result = await db.execute(select(Department))
     for dept in result.scalars().all():
         dept_map[dept.name] = dept.id
     
+    existing_employees = set()
+    emp_result = await db.execute(select(Employee.name, Employee.email))
+    for name, email in emp_result.all():
+        existing_employees.add((name, email or ""))
+    
     imported = 0
     failed = 0
+    skipped = 0
     errors = []
+    skipped_details = []
     
     for idx, row in df.iterrows():
         try:
@@ -105,19 +112,37 @@ async def import_employees_from_excel(db: AsyncSession, file_content: bytes) -> 
                 errors.append(f"第{idx + 2}行：缺少姓名")
                 continue
             
+            emp_name = emp_data["name"]
+            emp_email = emp_data.get("email", "") or ""
+            if (emp_name, emp_email) in existing_employees:
+                skipped += 1
+                skipped_details.append(f"第{idx + 2}行：员工'{emp_name}'({emp_email})已存在，已跳过")
+                continue
+            
             emp_in = EmployeeCreate(**emp_data)
             emp = Employee(**emp_in.model_dump())
             db.add(emp)
+            existing_employees.add((emp_name, emp_email))
             imported += 1
         except Exception as e:
             failed += 1
             errors.append(f"第{idx + 2}行：{str(e)}")
     
     await db.commit()
-    return {
+    
+    message_parts = [f"成功导入{imported}条记录"]
+    if skipped > 0:
+        message_parts.append(f"跳过{skipped}条重复记录")
+    if failed > 0:
+        message_parts.append(f"失败{failed}条")
+    
+    result = {
         "success": True,
         "imported": imported,
         "failed": failed,
+        "skipped": skipped,
         "errors": errors[:20],
-        "message": f"成功导入{imported}条记录"
+        "skipped_details": skipped_details[:20],
+        "message": "，".join(message_parts)
     }
+    return result
