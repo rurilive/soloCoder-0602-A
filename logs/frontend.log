@@ -1,0 +1,10 @@
+nohup: ignoring input
+
+> realtime-monitor-frontend@0.1.0 dev
+> vite --port 1112 --host
+
+
+  VITE v5.4.21  ready in 177 ms
+
+  ➜  Local:   http://localhost:1112/
+  ➜  Network: http://172.26.246.87:1112/

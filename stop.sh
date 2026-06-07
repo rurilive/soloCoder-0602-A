@@ -1,62 +1,47 @@
 #!/bin/bash
 
+set -e
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="$PROJECT_DIR/logs"
-BACKEND_PORT=1111
-FRONTEND_PORT=1112
+PID_DIR="$PROJECT_DIR/pids"
 
 echo "=========================================="
-echo "  企业通讯录管理系统 - 停止脚本"
+echo "  停止实时监控仪表盘系统"
 echo "=========================================="
 
-kill_by_pid() {
-    local pid_file="$1"
+stop_service() {
+    local name="$1"
+    local pid_file="$PID_DIR/$name.pid"
+
     if [ -f "$pid_file" ]; then
         local pid=$(cat "$pid_file")
-        if kill -0 $pid 2>/dev/null; then
-            echo "正在停止进程 $pid..."
-            kill -9 $pid 2>/dev/null
-            rm -f "$pid_file"
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid"
+            sleep 1
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid"
+                echo "⚠️  $name 服务已强制停止 (PID: $pid)"
+            else
+                echo "✅ $name 服务已停止 (PID: $pid)"
+            fi
+        else
+            echo "⚠️  $name 服务未在运行 (PID: $pid)"
         fi
-    fi
-}
-
-kill_by_port() {
-    local port=$1
-    local pids=$(lsof -Pi :$port -sTCP:LISTEN -t 2>/dev/null)
-    if [ -n "$pids" ]; then
-        echo "正在停止端口 $port 上的进程..."
-        kill -9 $pids 2>/dev/null
+        rm -f "$pid_file"
+    else
+        echo "ℹ️  未找到 $name 服务的 PID 文件"
     fi
 }
 
 echo ""
-echo "停止后端服务..."
-kill_by_pid "$LOG_DIR/backend.pid"
-kill_by_port $BACKEND_PORT
+echo "[1/2] 停止前端服务..."
+stop_service "frontend"
 
-echo "停止前端服务..."
-kill_by_pid "$LOG_DIR/frontend.pid"
-kill_by_port $FRONTEND_PORT
-
-sleep 1
+echo ""
+echo "[2/2] 停止后端服务..."
+stop_service "backend"
 
 echo ""
 echo "=========================================="
-echo "  服务已停止"
-echo "=========================================="
-echo ""
-echo "检查端口状态:"
-
-if lsof -Pi :$BACKEND_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "  后端端口 $BACKEND_PORT: 仍在运行"
-else
-    echo "  后端端口 $BACKEND_PORT: 已停止"
-fi
-
-if lsof -Pi :$FRONTEND_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "  前端端口 $FRONTEND_PORT: 仍在运行"
-else
-    echo "  前端端口 $FRONTEND_PORT: 已停止"
-fi
+echo "  所有服务已停止"
 echo "=========================================="

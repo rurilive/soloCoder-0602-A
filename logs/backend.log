@@ -1,0 +1,87 @@
+nohup: ignoring input
+INFO:     Started server process [2660489]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:1111 (Press CTRL+C to quit)
+INFO:     127.0.0.1:39360 - "GET /metrics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45970 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:35896 - "POST /thresholds HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52808 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     connection closed
+[2026-06-07 21:32:12] ALERT: cpu_usage=34.50 exceeds max threshold=10.00
+[2026-06-07 21:32:12] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+[2026-06-07 21:32:13] ALERT: cpu_usage=15.30 exceeds max threshold=10.00
+[2026-06-07 21:32:13] ALERT: memory_usage=91.30 exceeds max threshold=50.00
+[2026-06-07 21:32:14] ALERT: cpu_usage=26.20 exceeds max threshold=10.00
+[2026-06-07 21:32:14] ALERT: memory_usage=91.40 exceeds max threshold=50.00
+[2026-06-07 21:32:15] ALERT: cpu_usage=24.60 exceeds max threshold=10.00
+[2026-06-07 21:32:15] ALERT: memory_usage=91.50 exceeds max threshold=50.00
+[2026-06-07 21:32:17] ALERT: cpu_usage=20.70 exceeds max threshold=10.00
+[2026-06-07 21:32:17] ALERT: memory_usage=91.40 exceeds max threshold=50.00
+[2026-06-07 21:32:18] ALERT: cpu_usage=35.50 exceeds max threshold=10.00
+[2026-06-07 21:32:18] ALERT: memory_usage=91.30 exceeds max threshold=50.00
+[2026-06-07 21:32:19] ALERT: memory_usage=91.40 exceeds max threshold=50.00
+[2026-06-07 21:32:20] ALERT: cpu_usage=36.80 exceeds max threshold=10.00
+[2026-06-07 21:32:20] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:21] ALERT: cpu_usage=42.90 exceeds max threshold=10.00
+[2026-06-07 21:32:21] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:22] ALERT: cpu_usage=10.30 exceeds max threshold=10.00
+[2026-06-07 21:32:22] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:23] ALERT: cpu_usage=53.30 exceeds max threshold=10.00
+[2026-06-07 21:32:23] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:24] ALERT: cpu_usage=17.50 exceeds max threshold=10.00
+[2026-06-07 21:32:24] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:25] ALERT: cpu_usage=33.30 exceeds max threshold=10.00
+[2026-06-07 21:32:25] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:26] ALERT: cpu_usage=75.90 exceeds max threshold=10.00
+[2026-06-07 21:32:26] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:28] ALERT: cpu_usage=18.30 exceeds max threshold=10.00
+[2026-06-07 21:32:28] ALERT: memory_usage=91.00 exceeds max threshold=50.00
+[2026-06-07 21:32:29] ALERT: cpu_usage=36.80 exceeds max threshold=10.00
+[2026-06-07 21:32:29] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:30] ALERT: cpu_usage=59.70 exceeds max threshold=10.00
+[2026-06-07 21:32:30] ALERT: memory_usage=91.30 exceeds max threshold=50.00
+[2026-06-07 21:32:31] ALERT: cpu_usage=11.10 exceeds max threshold=10.00
+[2026-06-07 21:32:31] ALERT: memory_usage=91.40 exceeds max threshold=50.00
+[2026-06-07 21:32:34] ALERT: cpu_usage=13.10 exceeds max threshold=10.00
+[2026-06-07 21:32:34] ALERT: memory_usage=91.40 exceeds max threshold=50.00
+[2026-06-07 21:32:35] ALERT: cpu_usage=17.00 exceeds max threshold=10.00
+[2026-06-07 21:32:35] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+[2026-06-07 21:32:36] ALERT: cpu_usage=18.50 exceeds max threshold=10.00
+[2026-06-07 21:32:36] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+[2026-06-07 21:32:37] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+[2026-06-07 21:32:39] ALERT: cpu_usage=16.90 exceeds max threshold=10.00
+[2026-06-07 21:32:39] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+[2026-06-07 21:32:40] ALERT: cpu_usage=36.40 exceeds max threshold=10.00
+[2026-06-07 21:32:40] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+[2026-06-07 21:32:41] ALERT: cpu_usage=24.60 exceeds max threshold=10.00
+[2026-06-07 21:32:41] ALERT: memory_usage=91.10 exceeds max threshold=50.00
+[2026-06-07 21:32:42] ALERT: cpu_usage=15.30 exceeds max threshold=10.00
+[2026-06-07 21:32:42] ALERT: memory_usage=91.20 exceeds max threshold=50.00
+INFO:     127.0.0.1:45992 - "POST /thresholds HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48664 - "WebSocket /ws" [accepted]
+INFO:     connection open
+[2026-06-07 21:32:48] ALERT: response_time=460.67 exceeds max threshold=300.00
+[2026-06-07 21:33:04] ALERT: response_time=439.87 exceeds max threshold=300.00
+INFO:     127.0.0.1:48660 - "GET /thresholds HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48660 - "GET /thresholds HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48678 - "WebSocket /ws" [accepted]
+INFO:     connection open
+[2026-06-07 21:33:19] ALERT: response_time=504.31 exceeds max threshold=300.00
+[2026-06-07 21:33:49] ALERT: response_time=481.42 exceeds max threshold=300.00
+[2026-06-07 21:33:51] ALERT: response_time=338.60 exceeds max threshold=300.00
+[2026-06-07 21:34:04] ALERT: response_time=306.59 exceeds max threshold=300.00
+[2026-06-07 21:34:50] ALERT: response_time=482.06 exceeds max threshold=300.00
+[2026-06-07 21:35:04] ALERT: response_time=449.98 exceeds max threshold=300.00
+[2026-06-07 21:36:10] ALERT: response_time=545.47 exceeds max threshold=300.00
+[2026-06-07 21:36:13] ALERT: cpu_usage=84.70 exceeds max threshold=80.00
+[2026-06-07 21:36:28] ALERT: cpu_usage=85.10 exceeds max threshold=80.00
+[2026-06-07 21:36:44] ALERT: response_time=615.76 exceeds max threshold=300.00
+[2026-06-07 21:36:55] ALERT: cpu_usage=83.60 exceeds max threshold=80.00
+[2026-06-07 21:36:59] ALERT: response_time=327.14 exceeds max threshold=300.00
+[2026-06-07 21:37:22] ALERT: cpu_usage=94.70 exceeds max threshold=80.00
+[2026-06-07 21:37:33] ALERT: response_time=397.74 exceeds max threshold=300.00
+INFO:     127.0.0.1:47116 - "GET /metrics HTTP/1.1" 200 OK
