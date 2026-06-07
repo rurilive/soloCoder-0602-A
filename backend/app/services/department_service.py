@@ -1,10 +1,32 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from typing import List, Optional, Set
 from app.models.department import Department
 from app.models.employee import Employee
 from app.schemas.department import DepartmentCreate, DepartmentUpdate
+
+
+def collect_dept_ids_from_tree(tree: List[dict], target_id: int) -> Set[int]:
+    result = set()
+    
+    def find_and_collect(nodes: List[dict]) -> bool:
+        for node in nodes:
+            if node["id"] == target_id:
+                collect_all_ids([node])
+                return True
+            if node.get("children") and find_and_collect(node["children"]):
+                return True
+        return False
+    
+    def collect_all_ids(nodes: List[dict]):
+        for node in nodes:
+            result.add(node["id"])
+            if node.get("children"):
+                collect_all_ids(node["children"])
+    
+    find_and_collect(tree)
+    return result
 
 
 async def build_dept_tree(depts: List[Department], parent_id: Optional[int] = None) -> List[dict]:
@@ -31,6 +53,11 @@ async def get_all_departments(db: AsyncSession) -> List[dict]:
     )
     depts = result.scalars().all()
     return await build_dept_tree(list(depts))
+
+
+async def get_all_child_department_ids(db: AsyncSession, dept_id: int) -> Set[int]:
+    tree = await get_all_departments(db)
+    return collect_dept_ids_from_tree(tree, dept_id)
 
 
 async def get_department(db: AsyncSession, dept_id: int) -> Optional[Department]:

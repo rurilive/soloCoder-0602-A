@@ -2,32 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Tuple, Set
+from typing import List, Optional, Tuple
 from app.models.employee import Employee
-from app.models.department import Department
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeSearchResult
-
-
-async def get_all_child_department_ids(db: AsyncSession, dept_id: int) -> Set[int]:
-    result = await db.execute(select(Department))
-    all_depts = result.scalars().all()
-    
-    dept_map = {}
-    for dept in all_depts:
-        if dept.parent_id not in dept_map:
-            dept_map[dept.parent_id] = []
-        dept_map[dept.parent_id].append(dept)
-    
-    result_ids = set()
-    
-    def collect(current_id: int):
-        result_ids.add(current_id)
-        if current_id in dept_map:
-            for child in dept_map[current_id]:
-                collect(child.id)
-    
-    collect(dept_id)
-    return result_ids
+from app.services import department_service
 
 
 async def get_employees(
@@ -41,7 +19,7 @@ async def get_employees(
     count_query = select(func.count(Employee.id))
     
     if department_id is not None:
-        dept_ids = await get_all_child_department_ids(db, department_id)
+        dept_ids = await department_service.get_all_child_department_ids(db, department_id)
         query = query.where(Employee.department_id.in_(dept_ids))
         count_query = count_query.where(Employee.department_id.in_(dept_ids))
     
