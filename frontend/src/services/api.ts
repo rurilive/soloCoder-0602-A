@@ -1,10 +1,51 @@
-import axios from 'axios';
-import { Department, Employee, EmployeeSearchResult, ApiResponse } from '../types';
+import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { Department, Employee, EmployeeSearchResult, ApiResponse, LoginRequest, LoginResponse, CurrentUser } from '../types';
 
-const api = axios.create({
+const TOKEN_KEY = 'auth_token';
+
+const api: AxiosInstance = axios.create({
   baseURL: '/api',
   timeout: 10000,
 });
+
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      if (window.location.pathname !== '/login') {
+        localStorage.removeItem(TOKEN_KEY);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export const setAuthToken = (token: string) => {
+  localStorage.setItem(TOKEN_KEY, token);
+};
+
+export const removeAuthToken = () => {
+  localStorage.removeItem(TOKEN_KEY);
+};
+
+export const getAuthToken = () => {
+  return localStorage.getItem(TOKEN_KEY);
+};
+
+export const authApi = {
+  login: (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data),
+  me: () => api.get<CurrentUser>('/auth/me'),
+};
 
 export const departmentApi = {
   getAll: () => api.get<Department[]>('/departments'),

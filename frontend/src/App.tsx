@@ -1,23 +1,33 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Layout, Button, message, Modal, Form, Input, Upload, DatePicker, Select } from 'antd';
+import { Layout, Button, message, Modal, Form, Input, Upload, DatePicker, Select, Dropdown, Avatar, Space, Typography } from 'antd';
 import {
   TeamOutlined,
   UserAddOutlined,
   ImportOutlined,
   ExportOutlined,
   SearchOutlined,
-  ApartmentOutlined
+  ApartmentOutlined,
+  UserOutlined,
+  LogoutOutlined,
+  SafetyOutlined
 } from '@ant-design/icons';
 import DepartmentTree from './components/DepartmentTree';
 import EmployeeTable from './components/EmployeeTable';
 import EmployeeDetail from './components/EmployeeDetail';
-import { Department, Employee } from './types';
-import { departmentApi, employeeApi } from './services/api';
+import LoginPage from './components/LoginPage';
+import { Department, Employee, CurrentUser, PermissionConfig } from './types';
+import { departmentApi, employeeApi, authApi, removeAuthToken, getAuthToken } from './services/api';
+import { getPermissions, getRoleName } from './utils/permissions';
 import dayjs from 'dayjs';
 
 const { Header, Content } = Layout;
+const { Text } = Typography;
 
 const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [permissions, setPermissions] = useState<PermissionConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDept, setSelectedDept] = useState<number | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -26,8 +36,29 @@ const App: React.FC = () => {
   const [deptModalVisible, setDeptModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [deptForm] = Form.useForm();
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [deptOptions, setDeptOptions] = useState<{ label: string; value: number }[]>([]);
+
+  const checkAuth = useCallback(async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await authApi.me();
+      setCurrentUser(res.data);
+      setPermissions(getPermissions(res.data.role));
+    } catch (error) {
+      removeAuthToken();
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const loadDepartments = useCallback(async () => {
     try {
@@ -50,8 +81,22 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadDepartments();
-  }, [loadDepartments]);
+    if (currentUser) {
+      loadDepartments();
+    }
+  }, [currentUser, loadDepartments]);
+
+  const handleLoginSuccess = (user: CurrentUser) => {
+    setCurrentUser(user);
+    setPermissions(getPermissions(user.role));
+  };
+
+  const handleLogout = () => {
+    removeAuthToken();
+    setCurrentUser(null);
+    setPermissions(null);
+    message.success('已退出登录');
+  };
 
   const handleDeptSelect = (deptId: number | null) => {
     setSelectedDept(deptId);
@@ -65,7 +110,7 @@ const App: React.FC = () => {
   const handleAddEmployee = async () => {
     try {
       const values = await form.validateFields();
-      setLoading(true);
+      setSubmitting(true);
       const data = {
         ...values,
         hire_date: values.hire_date ? values.hire_date.format('YYYY-MM-DD') : undefined
@@ -75,19 +120,18 @@ const App: React.FC = () => {
       setAddModalVisible(false);
       form.resetFields();
       setSelectedEmployee(null);
-      setSelectedDept(selectedDept);
     } catch (error: any) {
       if (error.errorFields) return;
-      message.error('添加失败');
+      message.error(error.response?.data?.detail || '添加失败');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   const handleAddDepartment = async () => {
     try {
       const values = await deptForm.validateFields();
-      setLoading(true);
+      setSubmitting(true);
       await departmentApi.create(values);
       message.success('添加部门成功');
       setDeptModalVisible(false);
@@ -95,9 +139,9 @@ const App: React.FC = () => {
       loadDepartments();
     } catch (error: any) {
       if (error.errorFields) return;
-      message.error('添加部门失败');
+      message.error(error.response?.data?.detail || '添加部门失败');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -112,8 +156,8 @@ const App: React.FC = () => {
       link.click();
       link.remove();
       message.success('导出成功');
-    } catch (error) {
-      message.error('导出失败');
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '导出失败');
     }
   };
 
@@ -124,7 +168,6 @@ const App: React.FC = () => {
         const res = await employeeApi.import(file.originFileObj as File);
         if (res.data.success) {
           message.success(res.data.message);
-          setSelectedDept(selectedDept);
         } else {
           message.error(res.data.message);
         }
@@ -134,6 +177,58 @@ const App: React.FC = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>加载中...</div>
+      </div>
+    );
+  }
+
+  if (!currentUser || !permissions) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  const userMenuItems = [
+    {
+      key: 'user',
+      label: (
+        <Space direction="vertical" size={0} style={{ padding: '8px 12px' }}>
+          <Text strong>{currentUser.name}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {currentUser.position || '未设置职位'}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {currentUser.department_name || '未分配部门'}
+          </Text>
+        </Space>
+      ),
+      disabled: true
+    },
+    {
+      type: 'divider' as const
+    },
+    {
+      key: 'role',
+      label: (
+        <Space>
+          <SafetyOutlined />
+          角色：{getRoleName(currentUser.role)}
+        </Space>
+      ),
+      disabled: true
+    },
+    {
+      type: 'divider' as const
+    },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录',
+      onClick: handleLogout
+    }
+  ];
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header className="app-header">
@@ -141,24 +236,38 @@ const App: React.FC = () => {
           <ApartmentOutlined style={{ fontSize: 24 }} />
           企业通讯录管理系统
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button type="primary" icon={<UserAddOutlined />} onClick={() => setAddModalVisible(true)}>
-            添加员工
-          </Button>
-          <Button icon={<TeamOutlined />} onClick={() => setDeptModalVisible(true)}>
-            添加部门
-          </Button>
-          <Upload
-            showUploadList={false}
-            beforeUpload={() => false}
-            onChange={handleImport}
-            accept=".xlsx,.xls"
-          >
-            <Button icon={<ImportOutlined />}>导入Excel</Button>
-          </Upload>
-          <Button icon={<ExportOutlined />} onClick={handleExport}>
-            导出Excel
-          </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {permissions.canAddEmployee && (
+            <Button type="primary" icon={<UserAddOutlined />} onClick={() => setAddModalVisible(true)}>
+              添加员工
+            </Button>
+          )}
+          {permissions.canAddDepartment && (
+            <Button icon={<TeamOutlined />} onClick={() => setDeptModalVisible(true)}>
+              添加部门
+            </Button>
+          )}
+          {permissions.canImport && (
+            <Upload
+              showUploadList={false}
+              beforeUpload={() => false}
+              onChange={handleImport}
+              accept=".xlsx,.xls"
+            >
+              <Button icon={<ImportOutlined />}>导入Excel</Button>
+            </Upload>
+          )}
+          {permissions.canExport && (
+            <Button icon={<ExportOutlined />} onClick={handleExport}>
+              导出Excel
+            </Button>
+          )}
+          <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+            <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginLeft: 16 }}>
+              <Avatar icon={<UserOutlined />} />
+              <span style={{ color: 'white' }}>{currentUser.name}</span>
+            </div>
+          </Dropdown>
         </div>
       </Header>
       <Content className="app-content">
@@ -197,6 +306,7 @@ const App: React.FC = () => {
                 onDeleted={() => {
                   setSelectedEmployee(null);
                 }}
+                permissions={permissions}
               />
             ) : (
               <EmployeeTable
@@ -217,7 +327,7 @@ const App: React.FC = () => {
           setAddModalVisible(false);
           form.resetFields();
         }}
-        confirmLoading={loading}
+        confirmLoading={submitting}
         width={600}
       >
         <Form form={form} layout="vertical">
@@ -262,7 +372,7 @@ const App: React.FC = () => {
           setDeptModalVisible(false);
           deptForm.resetFields();
         }}
-        confirmLoading={loading}
+        confirmLoading={submitting}
       >
         <Form form={deptForm} layout="vertical">
           <Form.Item

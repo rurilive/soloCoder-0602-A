@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Set
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeSearchResult
 from app.services import department_service
@@ -93,6 +93,76 @@ async def search_employees(db: AsyncSession, keyword: str) -> List[EmployeeSearc
             (Employee.email.like(search_pattern, escape="\\")) |
             (Employee.phone.like(search_pattern, escape="\\")) |
             (Employee.position.like(search_pattern, escape="\\"))
+        )
+        .limit(50)
+    )
+    employees = result.scalars().all()
+    return [
+        EmployeeSearchResult(
+            id=emp.id,
+            name=emp.name,
+            email=emp.email,
+            phone=emp.phone,
+            position=emp.position,
+            department_name=emp.department.name if emp.department else None
+        )
+        for emp in employees
+    ]
+
+
+async def get_employees_by_dept_ids(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 100,
+    dept_ids: Optional[Set[int]] = None,
+    search: Optional[str] = None
+) -> Tuple[List[Employee], int]:
+    query = select(Employee).options(selectinload(Employee.department))
+    count_query = select(func.count(Employee.id))
+    
+    if dept_ids is not None:
+        query = query.where(Employee.department_id.in_(dept_ids))
+        count_query = count_query.where(Employee.department_id.in_(dept_ids))
+    
+    if search:
+        escaped_search = escape_like_pattern(search)
+        search_pattern = f"%{escaped_search}%"
+        search_condition = (
+            (Employee.name.like(search_pattern, escape="\\")) |
+            (Employee.email.like(search_pattern, escape="\\")) |
+            (Employee.phone.like(search_pattern, escape="\\")) |
+            (Employee.position.like(search_pattern, escape="\\"))
+        )
+        query = query.where(search_condition)
+        count_query = count_query.where(search_condition)
+    
+    count_result = await db.execute(count_query)
+    total = count_result.scalar_one()
+    
+    query = query.offset(skip).limit(limit).order_by(Employee.id)
+    result = await db.execute(query)
+    employees = result.scalars().all()
+    
+    return list(employees), total
+
+
+async def search_employees_by_dept_ids(
+    db: AsyncSession,
+    keyword: str,
+    dept_ids: Set[int]
+) -> List[EmployeeSearchResult]:
+    escaped_keyword = escape_like_pattern(keyword)
+    search_pattern = f"%{escaped_keyword}%"
+    result = await db.execute(
+        select(Employee).options(selectinload(Employee.department))
+        .where(
+            Employee.department_id.in_(dept_ids),
+            (
+                (Employee.name.like(search_pattern, escape="\\")) |
+                (Employee.email.like(search_pattern, escape="\\")) |
+                (Employee.phone.like(search_pattern, escape="\\")) |
+                (Employee.position.like(search_pattern, escape="\\"))
+            )
         )
         .limit(50)
     )

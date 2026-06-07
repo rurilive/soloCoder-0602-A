@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import date
+from app.models import UserRole
 
 
 class EmployeeBase(BaseModel):
@@ -11,6 +12,7 @@ class EmployeeBase(BaseModel):
     department_id: Optional[int] = None
     hire_date: Optional[date] = None
     avatar: Optional[str] = Field(None, max_length=255)
+    role: Optional[UserRole] = UserRole.EMPLOYEE
 
 
 class EmployeeCreate(EmployeeBase):
@@ -25,6 +27,7 @@ class EmployeeUpdate(BaseModel):
     department_id: Optional[int] = None
     hire_date: Optional[date] = None
     avatar: Optional[str] = Field(None, max_length=255)
+    role: Optional[UserRole] = None
 
 
 class EmployeeResponse(EmployeeBase):
@@ -42,3 +45,4 @@ class EmployeeSearchResult(BaseModel):
     phone: Optional[str] = None
     position: Optional[str] = None
     department_name: Optional[str] = None
+    role: Optional[str] = None

@@ -8,10 +8,12 @@ import {
   PhoneOutlined,
   TeamOutlined,
   UserOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  SafetyOutlined
 } from '@ant-design/icons';
-import { Employee } from '../types';
+import { Employee, PermissionConfig } from '../types';
 import { employeeApi } from '../services/api';
+import { getRoleName } from '../utils/permissions';
 import dayjs from 'dayjs';
 
 interface EmployeeDetailProps {
@@ -20,9 +22,17 @@ interface EmployeeDetailProps {
   onBack: () => void;
   onUpdated: () => void;
   onDeleted: () => void;
+  permissions: PermissionConfig;
 }
 
-const EmployeeDetail: React.FC<EmployeeDetailProps> = ({ employee, deptOptions, onBack, onUpdated, onDeleted }) => {
+const roleColors: Record<string, string> = {
+  admin: 'red',
+  hr: 'purple',
+  manager: 'orange',
+  employee: 'blue'
+};
+
+const EmployeeDetail: React.FC<EmployeeDetailProps> = ({ employee, deptOptions, onBack, onUpdated, onDeleted, permissions }) => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -64,29 +74,33 @@ const EmployeeDetail: React.FC<EmployeeDetailProps> = ({ employee, deptOptions, 
           返回列表
         </Button>
         <Space>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            onClick={() => {
-              form.setFieldsValue({
-                ...employee,
-                hire_date: employee.hire_date ? dayjs(employee.hire_date) : undefined
-              });
-              setEditModalVisible(true);
-            }}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定删除该员工吗？"
-            onConfirm={handleDelete}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button danger icon={<DeleteOutlined />}>
-              删除
+          {permissions.canEditEmployee && (
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              onClick={() => {
+                form.setFieldsValue({
+                  ...employee,
+                  hire_date: employee.hire_date ? dayjs(employee.hire_date) : undefined
+                });
+                setEditModalVisible(true);
+              }}
+            >
+              编辑
             </Button>
-          </Popconfirm>
+          )}
+          {permissions.canDeleteEmployee && (
+            <Popconfirm
+              title="确定删除该员工吗？"
+              onConfirm={handleDelete}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       </div>
 
@@ -109,7 +123,14 @@ const EmployeeDetail: React.FC<EmployeeDetailProps> = ({ employee, deptOptions, 
             {employee.name.charAt(0)}
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: 24 }}>{employee.name}</h2>
+            <h2 style={{ margin: 0, fontSize: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {employee.name}
+              {employee.role && (
+                <Tag color={roleColors[employee.role]} icon={<SafetyOutlined />}>
+                  {getRoleName(employee.role)}
+                </Tag>
+              )}
+            </h2>
             <p style={{ margin: '8px 0 0 0', color: '#8c8c8c', fontSize: 16 }}>
               {employee.position || '未设置职位'}
             </p>
@@ -144,7 +165,14 @@ const EmployeeDetail: React.FC<EmployeeDetailProps> = ({ employee, deptOptions, 
               </Space>
             ) : '—'}
           </Descriptions.Item>
-          <Descriptions.Item label="入职日期" span={2}>
+          <Descriptions.Item label="角色" span={1}>
+            {employee.role ? (
+              <Tag color={roleColors[employee.role]} icon={<SafetyOutlined />}>
+                {getRoleName(employee.role)}
+              </Tag>
+            ) : '—'}
+          </Descriptions.Item>
+          <Descriptions.Item label="入职日期" span={1}>
             <Space>
               <CalendarOutlined style={{ color: '#722ed1' }} />
               {employee.hire_date || '—'}

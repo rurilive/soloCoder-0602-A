@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Date
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models import UserRole
 
 
 class Employee(Base):
@@ -14,5 +15,7 @@ class Employee(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     hire_date = Column(Date, nullable=True)
     avatar = Column(String(255), nullable=True)
+    role = Column(String(20), nullable=False, default=UserRole.EMPLOYEE)
+    password_hash = Column(String(255), nullable=True)
 
     department = relationship("Department", back_populates="employees")

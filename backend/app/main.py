@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.database import engine, Base
 from app.api import departments, employees
+from app.api.auth import router as auth_router
 from app.init_data import init_demo_data
 
 
@@ -24,6 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(departments.router)
 app.include_router(employees.router)
 
