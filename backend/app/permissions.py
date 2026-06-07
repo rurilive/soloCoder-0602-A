@@ -54,10 +54,6 @@ ROUTE_PERMISSIONS: Dict[str, Dict[str, PermissionConfig]] = {
             allowed_roles={UserRole.HR, UserRole.ADMIN},
             require_import_export=True
         ),
-        r"^/api/employees/\d+/role$": PermissionConfig(
-            allowed_roles={UserRole.ADMIN},
-            require_role_management=True
-        ),
     },
     "PUT": {
         r"^/api/departments/\d+$": PermissionConfig(
@@ -67,6 +63,10 @@ ROUTE_PERMISSIONS: Dict[str, Dict[str, PermissionConfig]] = {
         r"^/api/employees/\d+$": PermissionConfig(
             allowed_roles={UserRole.MANAGER, UserRole.HR, UserRole.ADMIN},
             require_write=True
+        ),
+        r"^/api/employees/\d+/role$": PermissionConfig(
+            allowed_roles={UserRole.ADMIN},
+            require_role_management=True
         ),
     },
     "DELETE": {

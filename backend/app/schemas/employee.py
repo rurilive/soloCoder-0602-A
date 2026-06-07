@@ -12,7 +12,6 @@ class EmployeeBase(BaseModel):
     department_id: Optional[int] = None
     hire_date: Optional[date] = None
     avatar: Optional[str] = Field(None, max_length=255)
-    role: Optional[UserRole] = UserRole.EMPLOYEE
 
 
 class EmployeeCreate(EmployeeBase):
@@ -27,12 +26,23 @@ class EmployeeUpdate(BaseModel):
     department_id: Optional[int] = None
     hire_date: Optional[date] = None
     avatar: Optional[str] = Field(None, max_length=255)
-    role: Optional[UserRole] = None
 
 
-class EmployeeResponse(EmployeeBase):
+class EmployeeRoleUpdate(BaseModel):
+    role: UserRole
+
+
+class EmployeeResponse(BaseModel):
     id: int
+    name: str
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    position: Optional[str] = None
+    department_id: Optional[int] = None
     department_name: Optional[str] = None
+    hire_date: Optional[date] = None
+    avatar: Optional[str] = None
+    role: Optional[UserRole] = None
 
     class Config:
         from_attributes = True

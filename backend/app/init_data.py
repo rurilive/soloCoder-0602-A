@@ -3,6 +3,7 @@ from app.database import AsyncSessionLocal
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models import UserRole
+from app.auth import get_password_hash
 from sqlalchemy.future import select
 from datetime import date
 
@@ -32,6 +33,8 @@ async def init_demo_data():
             db.add_all([frontend, backend, test])
             await db.flush()
             
+            default_pwd_hash = get_password_hash("123456")
+            
             employees = [
                 Employee(
                     name="张三",
@@ -40,7 +43,8 @@ async def init_demo_data():
                     position="技术总监",
                     department_id=tech.id,
                     hire_date=date(2020, 1, 15),
-                    role=UserRole.MANAGER
+                    role=UserRole.MANAGER,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="李四",
@@ -49,7 +53,8 @@ async def init_demo_data():
                     position="前端工程师",
                     department_id=frontend.id,
                     hire_date=date(2021, 3, 20),
-                    role=UserRole.EMPLOYEE
+                    role=UserRole.EMPLOYEE,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="王五",
@@ -58,7 +63,8 @@ async def init_demo_data():
                     position="前端工程师",
                     department_id=frontend.id,
                     hire_date=date(2022, 5, 10),
-                    role=UserRole.EMPLOYEE
+                    role=UserRole.EMPLOYEE,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="赵六",
@@ -67,7 +73,8 @@ async def init_demo_data():
                     position="后端工程师",
                     department_id=backend.id,
                     hire_date=date(2020, 8, 1),
-                    role=UserRole.EMPLOYEE
+                    role=UserRole.EMPLOYEE,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="钱七",
@@ -76,7 +83,8 @@ async def init_demo_data():
                     position="后端工程师",
                     department_id=backend.id,
                     hire_date=date(2021, 11, 25),
-                    role=UserRole.EMPLOYEE
+                    role=UserRole.EMPLOYEE,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="孙八",
@@ -85,7 +93,8 @@ async def init_demo_data():
                     position="测试工程师",
                     department_id=test.id,
                     hire_date=date(2022, 2, 14),
-                    role=UserRole.EMPLOYEE
+                    role=UserRole.EMPLOYEE,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="周九",
@@ -94,7 +103,8 @@ async def init_demo_data():
                     position="销售总监",
                     department_id=sales.id,
                     hire_date=date(2019, 6, 30),
-                    role=UserRole.MANAGER
+                    role=UserRole.MANAGER,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="吴十",
@@ -103,7 +113,8 @@ async def init_demo_data():
                     position="销售经理",
                     department_id=sales.id,
                     hire_date=date(2021, 1, 18),
-                    role=UserRole.EMPLOYEE
+                    role=UserRole.EMPLOYEE,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="郑十一",
@@ -112,7 +123,8 @@ async def init_demo_data():
                     position="HR经理",
                     department_id=hr.id,
                     hire_date=date(2020, 4, 22),
-                    role=UserRole.HR
+                    role=UserRole.HR,
+                    password_hash=default_pwd_hash
                 ),
                 Employee(
                     name="王十二",
@@ -121,29 +133,38 @@ async def init_demo_data():
                     position="财务总监",
                     department_id=finance.id,
                     hire_date=date(2018, 9, 1),
-                    role=UserRole.ADMIN
+                    role=UserRole.ADMIN,
+                    password_hash=default_pwd_hash
                 ),
             ]
             
             db.add_all(employees)
             await db.commit()
         else:
-            result = await db.execute(select(Employee).where(Employee.role.is_(None)))
-            employees_without_role = result.scalars().all()
-            role_mapping = {
-                "张三": UserRole.MANAGER,
-                "李四": UserRole.EMPLOYEE,
-                "王五": UserRole.EMPLOYEE,
-                "赵六": UserRole.EMPLOYEE,
-                "钱七": UserRole.EMPLOYEE,
-                "孙八": UserRole.EMPLOYEE,
-                "周九": UserRole.MANAGER,
-                "吴十": UserRole.EMPLOYEE,
-                "郑十一": UserRole.HR,
-                "王十二": UserRole.ADMIN,
-            }
-            for emp in employees_without_role:
-                if emp.name in role_mapping:
-                    emp.role = role_mapping[emp.name]
-            if employees_without_role:
+            default_pwd_hash = get_password_hash("123456")
+            result = await db.execute(select(Employee))
+            all_employees = result.scalars().all()
+            
+            need_update = False
+            for emp in all_employees:
+                if emp.role is None:
+                    role_mapping = {
+                        "张三": UserRole.MANAGER,
+                        "李四": UserRole.EMPLOYEE,
+                        "王五": UserRole.EMPLOYEE,
+                        "赵六": UserRole.EMPLOYEE,
+                        "钱七": UserRole.EMPLOYEE,
+                        "孙八": UserRole.EMPLOYEE,
+                        "周九": UserRole.MANAGER,
+                        "吴十": UserRole.EMPLOYEE,
+                        "郑十一": UserRole.HR,
+                        "王十二": UserRole.ADMIN,
+                    }
+                    if emp.name in role_mapping:
+                        emp.role = role_mapping[emp.name]
+                        need_update = True
+                if emp.password_hash is None:
+                    emp.password_hash = default_pwd_hash
+                    need_update = True
+            if need_update:
                 await db.commit()

@@ -29,25 +29,17 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     employee = result.scalar_one_or_none()
     
-    if not employee:
+    if not employee or not employee.password_hash:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误"
         )
     
-    if not employee.password_hash:
-        default_password = "123456"
-        if login_data.password != default_password:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="用户名或密码错误"
-            )
-    else:
-        if not verify_password(login_data.password, employee.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="用户名或密码错误"
-            )
+    if not verify_password(login_data.password, employee.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误"
+        )
     
     access_token = create_access_token(
         data={

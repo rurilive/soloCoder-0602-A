@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from io import BytesIO
 from app.database import get_db
-from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeSearchResult
+from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeSearchResult, EmployeeRoleUpdate
 from app.services import employee_service
 from app.utils.excel_handler import export_employees_to_excel, import_employees_from_excel
 from app.permissions import permission_middleware, check_employee_permission, check_department_permission
@@ -237,3 +237,21 @@ async def import_excel(
     content = await file.read()
     result = await import_employees_from_excel(db, content)
     return result
+
+
+@router.put("/{emp_id}/role")
+async def update_role(
+    emp_id: int,
+    role_in: EmployeeRoleUpdate,
+    auth_data: tuple = Depends(permission_middleware)
+):
+    _, db = auth_data
+    emp = await employee_service.get_employee(db, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="员工不存在")
+    emp = await employee_service.update_employee_role(db, emp_id, role_in.role)
+    return {
+        "id": emp.id,
+        "name": emp.name,
+        "role": emp.role
+    }

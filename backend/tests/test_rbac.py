@@ -6,7 +6,7 @@ from app.database import Base, get_db
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models import UserRole
-from app.auth import create_access_token
+from app.auth import create_access_token, get_password_hash
 from app.main import app
 from datetime import date
 
@@ -44,13 +44,16 @@ async def test_data(db_session: AsyncSession):
     db_session.add_all([frontend, backend])
     await db_session.flush()
     
+    default_pwd_hash = get_password_hash("123456")
+    
     admin_user = Employee(
         name="管理员",
         email="admin@example.com",
         position="系统管理员",
         department_id=finance.id,
         hire_date=date(2020, 1, 1),
-        role=UserRole.ADMIN
+        role=UserRole.ADMIN,
+        password_hash=default_pwd_hash
     )
     hr_user = Employee(
         name="HR人员",
@@ -58,7 +61,8 @@ async def test_data(db_session: AsyncSession):
         position="HR经理",
         department_id=hr.id,
         hire_date=date(2020, 1, 1),
-        role=UserRole.HR
+        role=UserRole.HR,
+        password_hash=default_pwd_hash
     )
     tech_manager = Employee(
         name="技术经理",
@@ -66,7 +70,8 @@ async def test_data(db_session: AsyncSession):
         position="技术总监",
         department_id=tech.id,
         hire_date=date(2020, 1, 1),
-        role=UserRole.MANAGER
+        role=UserRole.MANAGER,
+        password_hash=default_pwd_hash
     )
     frontend_emp = Employee(
         name="前端员工",
@@ -74,7 +79,8 @@ async def test_data(db_session: AsyncSession):
         position="前端工程师",
         department_id=frontend.id,
         hire_date=date(2021, 1, 1),
-        role=UserRole.EMPLOYEE
+        role=UserRole.EMPLOYEE,
+        password_hash=default_pwd_hash
     )
     backend_emp = Employee(
         name="后端员工",
@@ -82,7 +88,8 @@ async def test_data(db_session: AsyncSession):
         position="后端工程师",
         department_id=backend.id,
         hire_date=date(2021, 1, 1),
-        role=UserRole.EMPLOYEE
+        role=UserRole.EMPLOYEE,
+        password_hash=default_pwd_hash
     )
     sales_emp = Employee(
         name="销售员工",
@@ -90,7 +97,8 @@ async def test_data(db_session: AsyncSession):
         position="销售代表",
         department_id=sales.id,
         hire_date=date(2021, 1, 1),
-        role=UserRole.EMPLOYEE
+        role=UserRole.EMPLOYEE,
+        password_hash=default_pwd_hash
     )
     
     db_session.add_all([admin_user, hr_user, tech_manager, frontend_emp, backend_emp, sales_emp])
@@ -386,3 +394,132 @@ async def test_invalid_token(db_session: AsyncSession, test_data):
             headers={"Authorization": "Bearer invalid_token"}
         )
         assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_manager_cannot_set_admin_role_on_create(db_session: AsyncSession, test_data):
+    user = test_data["manager"]
+    token = get_token(user)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with create_test_client(db_session) as client:
+        response = await client.post(
+            "/api/employees",
+            headers=headers,
+            json={
+                "name": "新员工",
+                "role": "admin",
+                "department_id": test_data["depts"]["frontend"].id
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["role"] == UserRole.EMPLOYEE
+        assert data["role"] != UserRole.ADMIN
+
+
+@pytest.mark.asyncio
+async def test_hr_cannot_set_admin_role_on_create(db_session: AsyncSession, test_data):
+    user = test_data["hr"]
+    token = get_token(user)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with create_test_client(db_session) as client:
+        response = await client.post(
+            "/api/employees",
+            headers=headers,
+            json={
+                "name": "新员工2",
+                "role": "admin",
+                "department_id": test_data["depts"]["hr"].id
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["role"] == UserRole.EMPLOYEE
+
+
+@pytest.mark.asyncio
+async def test_update_employee_cannot_change_role(db_session: AsyncSession, test_data):
+    user = test_data["admin"]
+    target = test_data["frontend_emp"]
+    token = get_token(user)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with create_test_client(db_session) as client:
+        response = await client.put(
+            f"/api/employees/{target.id}",
+            headers=headers,
+            json={
+                "name": "修改后名字",
+                "role": "admin"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["role"] == UserRole.EMPLOYEE
+        assert data["role"] != UserRole.ADMIN
+
+
+@pytest.mark.asyncio
+async def test_admin_can_change_role_via_role_api(db_session: AsyncSession, test_data):
+    user = test_data["admin"]
+    target = test_data["frontend_emp"]
+    token = get_token(user)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with create_test_client(db_session) as client:
+        response = await client.put(
+            f"/api/employees/{target.id}/role",
+            headers=headers,
+            json={"role": "manager"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["role"] == UserRole.MANAGER
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_change_role_via_role_api(db_session: AsyncSession, test_data):
+    user = test_data["manager"]
+    target = test_data["frontend_emp"]
+    token = get_token(user)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with create_test_client(db_session) as client:
+        response = await client.put(
+            f"/api/employees/{target.id}/role",
+            headers=headers,
+            json={"role": "admin"}
+        )
+        assert response.status_code == 403
+        
+        user2 = test_data["hr"]
+        token2 = get_token(user2)
+        headers2 = {"Authorization": f"Bearer {token2}"}
+        response = await client.put(
+            f"/api/employees/{target.id}/role",
+            headers=headers2,
+            json={"role": "admin"}
+        )
+        assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_new_employee_default_role_is_employee(db_session: AsyncSession, test_data):
+    user = test_data["admin"]
+    token = get_token(user)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with create_test_client(db_session) as client:
+        response = await client.post(
+            "/api/employees",
+            headers=headers,
+            json={
+                "name": "测试新员工",
+                "department_id": test_data["depts"]["hr"].id
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["role"] == UserRole.EMPLOYEE

@@ -55,7 +55,10 @@ async def get_employee(db: AsyncSession, emp_id: int) -> Optional[Employee]:
 
 
 async def create_employee(db: AsyncSession, emp_in: EmployeeCreate) -> Employee:
-    emp = Employee(**emp_in.model_dump())
+    from app.models import UserRole
+    emp_data = emp_in.model_dump()
+    emp_data["role"] = UserRole.EMPLOYEE
+    emp = Employee(**emp_data)
     db.add(emp)
     await db.commit()
     await db.refresh(emp)
@@ -67,8 +70,19 @@ async def update_employee(db: AsyncSession, emp_id: int, emp_in: EmployeeUpdate)
     if not emp:
         return None
     update_data = emp_in.model_dump(exclude_unset=True)
+    update_data.pop("role", None)
     for key, value in update_data.items():
         setattr(emp, key, value)
+    await db.commit()
+    await db.refresh(emp)
+    return emp
+
+
+async def update_employee_role(db: AsyncSession, emp_id: int, role: str) -> Optional[Employee]:
+    emp = await get_employee(db, emp_id)
+    if not emp:
+        return None
+    emp.role = role
     await db.commit()
     await db.refresh(emp)
     return emp
