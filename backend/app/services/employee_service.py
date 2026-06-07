@@ -15,20 +15,24 @@ async def get_employees(
     search: Optional[str] = None
 ) -> Tuple[List[Employee], int]:
     query = select(Employee).options(selectinload(Employee.department))
+    count_query = select(Employee.id)
     
     if department_id is not None:
         query = query.where(Employee.department_id == department_id)
+        count_query = count_query.where(Employee.department_id == department_id)
     
     if search:
         search_pattern = f"%{search}%"
-        query = query.where(
+        search_condition = (
             (Employee.name.like(search_pattern)) |
             (Employee.email.like(search_pattern)) |
             (Employee.phone.like(search_pattern)) |
             (Employee.position.like(search_pattern))
         )
+        query = query.where(search_condition)
+        count_query = count_query.where(search_condition)
     
-    count_result = await db.execute(select(Employee.id))
+    count_result = await db.execute(count_query)
     total = len(count_result.scalars().all())
     
     query = query.offset(skip).limit(limit).order_by(Employee.id)
