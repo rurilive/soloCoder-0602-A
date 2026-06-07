@@ -12,13 +12,15 @@ async def build_dept_tree(depts: List[Department], parent_id: Optional[int] = No
     for dept in depts:
         if dept.parent_id == parent_id:
             children = await build_dept_tree(depts, dept.id)
+            child_employee_count = sum(child["employee_count"] for child in children)
+            total_employee_count = len(dept.employees) + child_employee_count
             tree.append({
                 "id": dept.id,
                 "name": dept.name,
                 "parent_id": dept.parent_id,
                 "description": dept.description,
                 "children": children,
-                "employee_count": len(dept.employees)
+                "employee_count": total_employee_count
             })
     return tree
 

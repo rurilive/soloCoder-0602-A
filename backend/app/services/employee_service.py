@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Tuple
 from app.models.employee import Employee
@@ -15,7 +16,7 @@ async def get_employees(
     search: Optional[str] = None
 ) -> Tuple[List[Employee], int]:
     query = select(Employee).options(selectinload(Employee.department))
-    count_query = select(Employee.id)
+    count_query = select(func.count(Employee.id))
     
     if department_id is not None:
         query = query.where(Employee.department_id == department_id)
@@ -33,7 +34,7 @@ async def get_employees(
         count_query = count_query.where(search_condition)
     
     count_result = await db.execute(count_query)
-    total = len(count_result.scalars().all())
+    total = count_result.scalar_one()
     
     query = query.offset(skip).limit(limit).order_by(Employee.id)
     result = await db.execute(query)
