@@ -30,3 +30,28 @@ def test_escape_like_empty_string():
 def test_escape_like_multiple_percent():
     result = escape_like_pattern("%%%")
     assert result == r"\%\%\%"
+
+
+def test_escape_like_backslash():
+    result = escape_like_pattern("path\\to\\file")
+    assert result == "path\\\\to\\\\file"
+
+
+def test_escape_like_backslash_with_percent():
+    result = escape_like_pattern("100\\%")
+    assert result == r"100\\\%"
+
+
+def test_escape_like_backslash_with_underscore():
+    result = escape_like_pattern("user\\_name")
+    assert result == r"user\\\_name"
+
+
+def test_escape_like_backslash_only():
+    result = escape_like_pattern("\\")
+    assert result == "\\\\"
+
+
+def test_escape_like_mixed_all():
+    result = escape_like_pattern("test\\_%value_")
+    assert result == "test\\\\\\_\\%value\\_"

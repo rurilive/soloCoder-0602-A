@@ -127,3 +127,74 @@ async def test_import_message_contains_skipped(db_session, sample_employees):
     
     assert "跳过" in result["message"]
     assert "重复" in result["message"]
+
+
+async def test_import_db_null_vs_excel_nan_email(db_session):
+    await db_session.execute(
+        Employee.__table__.insert(),
+        [{"name": "NaN邮箱测试", "email": None, "phone": "13900139300", "position": "测试"}]
+    )
+    await db_session.commit()
+    
+    excel_data = [
+        {"姓名": "NaN邮箱测试", "邮箱": float('nan'), "电话": "13900139301", "职位": "重复"},
+    ]
+    file_content = create_test_excel(excel_data)
+    
+    result = await import_employees_from_excel(db_session, file_content)
+    
+    assert result["success"] is True
+    assert result["imported"] == 0
+    assert result["skipped"] == 1
+
+
+async def test_import_db_null_vs_excel_missing_email_column(db_session):
+    await db_session.execute(
+        Employee.__table__.insert(),
+        [{"name": "缺列测试", "email": None, "phone": "13900139400", "position": "测试"}]
+    )
+    await db_session.commit()
+    
+    excel_data = [
+        {"姓名": "缺列测试", "电话": "13900139401", "职位": "重复"},
+    ]
+    file_content = create_test_excel(excel_data)
+    
+    result = await import_employees_from_excel(db_session, file_content)
+    
+    assert result["success"] is True
+    assert result["imported"] == 0
+    assert result["skipped"] == 1
+
+
+async def test_import_db_empty_string_vs_excel_empty_email(db_session):
+    await db_session.execute(
+        Employee.__table__.insert(),
+        [{"name": "空串测试", "email": "", "phone": "13900139500", "position": "测试"}]
+    )
+    await db_session.commit()
+    
+    excel_data = [
+        {"姓名": "空串测试", "邮箱": "", "电话": "13900139501", "职位": "重复"},
+    ]
+    file_content = create_test_excel(excel_data)
+    
+    result = await import_employees_from_excel(db_session, file_content)
+    
+    assert result["success"] is True
+    assert result["imported"] == 0
+    assert result["skipped"] == 1
+
+
+async def test_import_within_same_excel_null_email_duplicates(db_session):
+    excel_data = [
+        {"姓名": "同文件无邮箱", "邮箱": "", "电话": "13900139600", "职位": "重复测试1"},
+        {"姓名": "同文件无邮箱", "邮箱": float('nan'), "电话": "13900139601", "职位": "重复测试2"},
+    ]
+    file_content = create_test_excel(excel_data)
+    
+    result = await import_employees_from_excel(db_session, file_content)
+    
+    assert result["success"] is True
+    assert result["imported"] == 1
+    assert result["skipped"] == 1
