@@ -92,52 +92,52 @@ class MetricsDB:
     ) -> List[Dict]:
         with self._buffer_lock:
             self._flush_unlocked()
-            conn = self._get_conn()
-            cursor = conn.cursor()
+        conn = self._get_conn()
+        cursor = conn.cursor()
 
-            if downsample:
-                interval_seconds = _parse_interval(downsample)
-                if interval_seconds > 0:
-                    cursor.execute(
-                        """
-                        SELECT
-                            (CAST(timestamp AS INTEGER) / ?) * ? AS bucket_time,
-                            AVG(cpu_usage) AS cpu_usage,
-                            AVG(memory_usage) AS memory_usage,
-                            AVG(request_count) AS request_count,
-                            AVG(response_time) AS response_time,
-                            COUNT(*) AS sample_count
-                        FROM metrics
-                        WHERE timestamp >= ? AND timestamp <= ?
-                        GROUP BY bucket_time
-                        ORDER BY bucket_time
-                        """,
-                        (interval_seconds, interval_seconds, start_time, end_time),
-                    )
-                    rows = cursor.fetchall()
-                    return [
-                        {
-                            "timestamp": row["bucket_time"],
-                            "cpu_usage": row["cpu_usage"],
-                            "memory_usage": row["memory_usage"],
-                            "request_count": row["request_count"],
-                            "response_time": row["response_time"],
-                        }
-                        for row in rows
-                    ]
+        if downsample:
+            interval_seconds = _parse_interval(downsample)
+            if interval_seconds > 0:
+                cursor.execute(
+                    """
+                    SELECT
+                        (CAST(timestamp AS INTEGER) / ?) * ? AS bucket_time,
+                        AVG(cpu_usage) AS cpu_usage,
+                        AVG(memory_usage) AS memory_usage,
+                        AVG(request_count) AS request_count,
+                        AVG(response_time) AS response_time,
+                        COUNT(*) AS sample_count
+                    FROM metrics
+                    WHERE timestamp >= ? AND timestamp <= ?
+                    GROUP BY bucket_time
+                    ORDER BY bucket_time
+                    """,
+                    (interval_seconds, interval_seconds, start_time, end_time),
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "timestamp": row["bucket_time"],
+                        "cpu_usage": row["cpu_usage"],
+                        "memory_usage": row["memory_usage"],
+                        "request_count": row["request_count"],
+                        "response_time": row["response_time"],
+                    }
+                    for row in rows
+                ]
 
-            cursor.execute(
-                """
-                SELECT timestamp, cpu_usage, memory_usage, request_count, response_time
-                FROM metrics
-                WHERE timestamp >= ? AND timestamp <= ?
-                ORDER BY timestamp
-                LIMIT ?
-                """,
-                (start_time, end_time, max_points),
-            )
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+        cursor.execute(
+            """
+            SELECT timestamp, cpu_usage, memory_usage, request_count, response_time
+            FROM metrics
+            WHERE timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp
+            LIMIT ?
+            """,
+            (start_time, end_time, max_points),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
 
     def close(self):
         self.flush()
