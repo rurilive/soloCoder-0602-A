@@ -71,6 +71,9 @@ async def push_metrics():
 
             db.insert_metric(metrics)
 
+            for alert in alerts:
+                db.insert_alert(alert)
+
             message = {
                 "type": "metrics",
                 "data": metrics,
@@ -167,6 +170,64 @@ async def export_metrics_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/metrics/stats")
+async def get_metrics_stats(
+    start_time: float = Query(..., description="开始时间戳 (Unix 秒)"),
+    end_time: float = Query(..., description="结束时间戳 (Unix 秒)"),
+):
+    if start_time >= end_time:
+        raise HTTPException(status_code=400, detail="start_time 必须小于 end_time")
+    stats = db.get_metrics_stats(start_time, end_time)
+    return {
+        "start_time": start_time,
+        "end_time": end_time,
+        "stats": stats,
+    }
+
+
+@app.get("/alerts")
+async def get_alerts(
+    start_time: Optional[float] = Query(None, description="开始时间戳 (Unix 秒)"),
+    end_time: Optional[float] = Query(None, description="结束时间戳 (Unix 秒)"),
+    metric: Optional[str] = Query(None, description="指标名称过滤"),
+    acknowledged: Optional[int] = Query(None, description="确认状态 (0=未确认, 1=已确认)"),
+    limit: int = Query(50, description="每页数量"),
+    offset: int = Query(0, description="偏移量"),
+):
+    return db.query_alerts(start_time, end_time, metric, acknowledged, limit, offset)
+
+
+@app.get("/alerts/stats")
+async def get_alert_stats(
+    start_time: Optional[float] = Query(None, description="开始时间戳 (Unix 秒)"),
+    end_time: Optional[float] = Query(None, description="结束时间戳 (Unix 秒)"),
+):
+    return db.get_alert_stats(start_time, end_time)
+
+
+@app.put("/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(alert_id: int):
+    success = db.acknowledge_alert(alert_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="告警记录不存在")
+    return {"status": "ok"}
+
+
+@app.put("/alerts/acknowledge-all")
+async def acknowledge_all_alerts():
+    count = db.acknowledge_all_alerts()
+    return {"status": "ok", "acknowledged_count": count}
+
+
+@app.delete("/alerts")
+async def delete_alerts(
+    start_time: Optional[float] = Query(None, description="开始时间戳 (Unix 秒)"),
+    end_time: Optional[float] = Query(None, description="结束时间戳 (Unix 秒)"),
+):
+    count = db.delete_alerts(start_time, end_time)
+    return {"status": "ok", "deleted_count": count}
 
 
 @app.websocket("/ws")

@@ -50,6 +50,34 @@ class MetricsDB:
             CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics(timestamp)
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                metric TEXT NOT NULL,
+                value REAL NOT NULL,
+                threshold_type TEXT NOT NULL,
+                threshold_value REAL NOT NULL,
+                acknowledged INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alerts_metric ON alerts(metric)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged)
+            """
+        )
         conn.commit()
 
     def insert_metric(self, metrics: Dict):
@@ -138,6 +166,231 @@ class MetricsDB:
         )
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+
+    def insert_alert(self, alert: Dict):
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO alerts (timestamp, metric, value, threshold_type, threshold_value, acknowledged)
+            VALUES (?, ?, ?, ?, ?, 0)
+            """,
+            (
+                alert["timestamp"],
+                alert["metric"],
+                alert["value"],
+                alert["threshold_type"],
+                alert["threshold_value"],
+            ),
+        )
+        conn.commit()
+
+    def query_alerts(
+        self,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        metric: Optional[str] = None,
+        acknowledged: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        conditions = []
+        params = []
+        if start_time is not None:
+            conditions.append("timestamp >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            conditions.append("timestamp <= ?")
+            params.append(end_time)
+        if metric is not None:
+            conditions.append("metric = ?")
+            params.append(metric)
+        if acknowledged is not None:
+            conditions.append("acknowledged = ?")
+            params.append(acknowledged)
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+        cursor.execute(
+            f"""
+            SELECT id, timestamp, metric, value, threshold_type, threshold_value, acknowledged
+            FROM alerts
+            {where_clause}
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [limit, offset],
+        )
+        rows = cursor.fetchall()
+        count_cursor = conn.cursor()
+        count_cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total FROM alerts {where_clause}
+            """,
+            params,
+        )
+        total = count_cursor.fetchone()["total"]
+        return {
+            "total": total,
+            "data": [dict(row) for row in rows],
+        }
+
+    def acknowledge_alert(self, alert_id: int):
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE alerts SET acknowledged = 1 WHERE id = ?",
+            (alert_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def acknowledge_all_alerts(self):
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0")
+        conn.commit()
+        return cursor.rowcount
+
+    def delete_alerts(
+        self,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ):
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        conditions = []
+        params = []
+        if start_time is not None:
+            conditions.append("timestamp >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            conditions.append("timestamp <= ?")
+            params.append(end_time)
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+        cursor.execute(f"DELETE FROM alerts {where_clause}", params)
+        conn.commit()
+        return cursor.rowcount
+
+    def get_alert_stats(
+        self,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> Dict:
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        conditions = []
+        params = []
+        if start_time is not None:
+            conditions.append("timestamp >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            conditions.append("timestamp <= ?")
+            params.append(end_time)
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+        cursor.execute(
+            f"""
+            SELECT
+                COUNT(*) AS total_count,
+                SUM(CASE WHEN acknowledged = 0 THEN 1 ELSE 0 END) AS unacknowledged_count,
+                SUM(CASE WHEN acknowledged = 1 THEN 1 ELSE 0 END) AS acknowledged_count
+            FROM alerts
+            {where_clause}
+            """,
+            params,
+        )
+        overview = dict(cursor.fetchone())
+        cursor.execute(
+            f"""
+            SELECT
+                metric,
+                COUNT(*) AS count,
+                SUM(CASE WHEN acknowledged = 0 THEN 1 ELSE 0 END) AS unacknowledged
+            FROM alerts
+            {where_clause}
+            GROUP BY metric
+            ORDER BY count DESC
+            """,
+            params,
+        )
+        by_metric = [dict(row) for row in cursor.fetchall()]
+        cursor.execute(
+            f"""
+            SELECT
+                threshold_type,
+                COUNT(*) AS count
+            FROM alerts
+            {where_clause}
+            GROUP BY threshold_type
+            """,
+            params,
+        )
+        by_type = [dict(row) for row in cursor.fetchall()]
+        return {
+            "overview": overview,
+            "by_metric": by_metric,
+            "by_type": by_type,
+        }
+
+    def get_metrics_stats(
+        self,
+        start_time: float,
+        end_time: float,
+    ) -> Dict:
+        with self._buffer_lock:
+            self._flush_unlocked()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        metric_keys = ["cpu_usage", "memory_usage", "request_count", "response_time"]
+        stats = {}
+        for key in metric_keys:
+            cursor.execute(
+                f"""
+                SELECT
+                    AVG({key}) AS avg,
+                    MIN({key}) AS min,
+                    MAX({key}) AS max,
+                    COUNT(*) AS count
+                FROM metrics
+                WHERE timestamp >= ? AND timestamp <= ?
+                """,
+                (start_time, end_time),
+            )
+            row = cursor.fetchone()
+            base = dict(row)
+            cursor.execute(
+                f"""
+                SELECT {key} AS p95 FROM metrics
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY {key}
+                LIMIT 1 OFFSET (SELECT COUNT(*) FROM metrics WHERE timestamp >= ? AND timestamp <= ?) * 95 / 100 - 1
+                """,
+                (start_time, end_time, start_time, end_time),
+            )
+            p95_row = cursor.fetchone()
+            base["p95"] = p95_row[key] if p95_row else None
+            cursor.execute(
+                f"""
+                SELECT {key} AS p99 FROM metrics
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY {key}
+                LIMIT 1 OFFSET (SELECT COUNT(*) FROM metrics WHERE timestamp >= ? AND timestamp <= ?) * 99 / 100 - 1
+                """,
+                (start_time, end_time, start_time, end_time),
+            )
+            p99_row = cursor.fetchone()
+            base["p99"] = p99_row[key] if p99_row else None
+            for k in ("avg", "min", "max", "p95", "p99"):
+                if base[k] is not None:
+                    base[k] = round(base[k], 2)
+            stats[key] = base
+        return stats
 
     def close(self):
         self.flush()

@@ -4,6 +4,8 @@ import MetricChart from './components/MetricChart'
 import AlertBanner from './components/AlertBanner'
 import ThresholdModal from './components/ThresholdModal'
 import TimeRangeSelector from './components/TimeRangeSelector'
+import AlertHistory from './components/AlertHistory'
+import StatsPanel from './components/StatsPanel'
 import { METRIC_CONFIGS, isInAlert } from './utils/thresholds'
 
 const MAX_DATA_POINTS = 60
@@ -16,6 +18,9 @@ export default function App() {
   const [currentAlerts, setCurrentAlerts] = useState([])
   const [showAlerts, setShowAlerts] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [showAlertHistory, setShowAlertHistory] = useState(false)
+  const [showStats, setShowStats] = useState(false)
+  const [unackCount, setUnackCount] = useState(0)
   const [isLive, setIsLive] = useState(true)
   const [timeRange, setTimeRange] = useState({ start: null, end: null, downsample: null })
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -27,6 +32,18 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => setThresholds(data || {}))
       .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const fetchUnackCount = () => {
+      fetch(`${API_URL}/alerts?acknowledged=0&limit=1`)
+        .then((res) => res.json())
+        .then((data) => setUnackCount(data.total || 0))
+        .catch(() => {})
+    }
+    fetchUnackCount()
+    const interval = setInterval(fetchUnackCount, 10000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -136,6 +153,15 @@ export default function App() {
           <span className={`status-badge ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? '● 已连接' : '● 未连接'}
           </span>
+          <button
+            className={`btn btn-secondary ${unackCount > 0 ? 'btn-alert-pulse' : ''}`}
+            onClick={() => setShowAlertHistory(true)}
+          >
+            🔔 告警 {unackCount > 0 && `(${unackCount})`}
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowStats(true)}>
+            📈 统计
+          </button>
           {!isLive && (
             <button className="btn btn-secondary" onClick={handleExportCSV}>
               📥 导出 CSV
@@ -191,6 +217,17 @@ export default function App() {
           onClose={() => setShowModal(false)}
         />
       )}
+
+      <AlertHistory
+        isOpen={showAlertHistory}
+        onClose={() => setShowAlertHistory(false)}
+      />
+
+      <StatsPanel
+        isOpen={showStats}
+        onClose={() => setShowStats(false)}
+        timeRange={timeRange}
+      />
     </div>
   )
 }
