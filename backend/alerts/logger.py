@@ -26,6 +26,12 @@ class AlertLogger:
         self.logger.warning(msg)
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
+    def _compute_severity(self, value: float, threshold_value: float) -> str:
+        if threshold_value == 0:
+            return "critical"
+        deviation = abs(value - threshold_value) / abs(threshold_value)
+        return "critical" if deviation >= 0.2 else "warning"
+
     def check_thresholds(self, metrics: dict, thresholds: dict) -> list:
         alerts = []
         for metric_key, value in metrics.items():
@@ -36,23 +42,27 @@ class AlertLogger:
 
             if max_key in thresholds and thresholds[max_key] is not None:
                 if value > thresholds[max_key]:
+                    severity = self._compute_severity(value, thresholds[max_key])
                     alerts.append({
                         "metric": metric_key,
                         "value": value,
                         "threshold_type": "max",
                         "threshold_value": thresholds[max_key],
                         "timestamp": metrics["timestamp"],
+                        "severity": severity,
                     })
                     self.log_alert(metric_key, value, "exceeds max", thresholds[max_key])
 
             if min_key in thresholds and thresholds[min_key] is not None:
                 if value < thresholds[min_key]:
+                    severity = self._compute_severity(value, thresholds[min_key])
                     alerts.append({
                         "metric": metric_key,
                         "value": value,
                         "threshold_type": "min",
                         "threshold_value": thresholds[min_key],
                         "timestamp": metrics["timestamp"],
+                        "severity": severity,
                     })
                     self.log_alert(metric_key, value, "below min", thresholds[min_key])
 

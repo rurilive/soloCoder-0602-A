@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import MetricChart from './components/MetricChart'
 import AlertBanner from './components/AlertBanner'
@@ -6,6 +6,7 @@ import ThresholdModal from './components/ThresholdModal'
 import TimeRangeSelector from './components/TimeRangeSelector'
 import AlertHistory from './components/AlertHistory'
 import StatsPanel from './components/StatsPanel'
+import NotificationPopup from './components/NotificationPopup'
 import { METRIC_CONFIGS, isInAlert } from './utils/thresholds'
 
 const MAX_DATA_POINTS = 60
@@ -25,6 +26,9 @@ export default function App() {
   const [timeRange, setTimeRange] = useState({ start: null, end: null, downsample: null })
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [notifications, setNotifications] = useState([])
+  const [notificationsPaused, setNotificationsPaused] = useState(false)
+  const [notifIdCounter, setNotifIdCounter] = useState(0)
   const { isConnected, lastMessage } = useWebSocket(WS_URL)
 
   useEffect(() => {
@@ -64,6 +68,23 @@ export default function App() {
       }
     }
   }, [lastMessage, isLive])
+
+  useEffect(() => {
+    if (!lastMessage || lastMessage.type !== 'alert_notification') return
+    if (notificationsPaused) return
+    setNotifIdCounter((prev) => {
+      const nextId = prev + 1
+      setNotifications((ns) => [
+        ...ns,
+        { ...lastMessage.data, id: nextId },
+      ])
+      return nextId
+    })
+  }, [lastMessage, notificationsPaused])
+
+  const dismissNotification = useCallback((id) => {
+    setNotifications((ns) => ns.filter((n) => n.id !== id))
+  }, [])
 
   const fetchHistoryData = async (start, end, downsample) => {
     setLoadingHistory(true)
@@ -170,6 +191,13 @@ export default function App() {
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>
             ⚙️ 设置阈值
           </button>
+          <button
+            className={`btn ${notificationsPaused ? 'btn-secondary' : 'btn-notification-on'}`}
+            onClick={() => setNotificationsPaused((p) => !p)}
+            title={notificationsPaused ? '恢复通知弹窗' : '暂停通知弹窗'}
+          >
+            {notificationsPaused ? '🔕 通知已暂停' : '🔔 通知开启'}
+          </button>
         </div>
       </header>
 
@@ -227,6 +255,11 @@ export default function App() {
         isOpen={showStats}
         onClose={() => setShowStats(false)}
         timeRange={timeRange}
+      />
+
+      <NotificationPopup
+        notifications={notifications}
+        onDismiss={dismissNotification}
       />
     </div>
   )

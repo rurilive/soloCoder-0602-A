@@ -689,3 +689,123 @@ body {
   padding-top: 12px;
   border-top: 1px solid #334155;
 }
+
+.notification-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  z-index: 1100;
+  max-height: calc(100vh - 100px);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.notification-card {
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: 320px;
+  border: 1px solid #334155;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: notifSlideIn 0.3s ease;
+  pointer-events: auto;
+}
+
+.notification-card.severity-warning {
+  border-left: 4px solid #f59e0b;
+}
+
+.notification-card.severity-critical {
+  border-left: 4px solid #ef4444;
+}
+
+@keyframes notifSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.notification-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f1f5f9;
+  flex: 1;
+}
+
+.notification-severity {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.notification-severity.severity-warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.notification-severity.severity-critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.notification-close {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.notification-close:hover {
+  color: #e2e8f0;
+}
+
+.notification-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.notification-label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.notification-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.btn-notification-on {
+  background: #059669;
+  color: white;
+}
+
+.btn-notification-on:hover {
+  background: #047857;
+}

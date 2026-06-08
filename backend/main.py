@@ -80,6 +80,20 @@ async def push_metrics():
                 "alerts": alerts,
             }
             await manager.broadcast(message)
+
+            for alert in alerts:
+                notification = {
+                    "type": "alert_notification",
+                    "data": {
+                        "metric": alert["metric"],
+                        "value": alert["value"],
+                        "threshold_type": alert["threshold_type"],
+                        "threshold_value": alert["threshold_value"],
+                        "severity": alert.get("severity", "warning"),
+                        "timestamp": alert["timestamp"],
+                    },
+                }
+                await manager.broadcast(notification)
         except Exception as e:
             print(f"Error pushing metrics: {e}")
         await asyncio.sleep(PUSH_INTERVAL)
