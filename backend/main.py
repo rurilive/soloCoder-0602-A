@@ -15,7 +15,7 @@ from metrics.simulator import BusinessMetricsSimulator
 from metrics.models import MetricsData, ThresholdConfig
 from websocket.manager import ConnectionManager
 from alerts.logger import AlertLogger
-from database import insert_metric, query_metrics
+from database import db
 
 
 collector = SystemMetricsCollector()
@@ -27,13 +27,17 @@ current_thresholds = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(push_metrics())
+    db.init_db()
+    push_task = asyncio.create_task(push_metrics())
+    flush_task = asyncio.create_task(periodic_flush())
     yield
-    task.cancel()
+    push_task.cancel()
+    flush_task.cancel()
     try:
-        await task
+        await asyncio.gather(push_task, flush_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
+    db.close()
 
 
 app = FastAPI(title="Real-time Monitor API", lifespan=lifespan)
@@ -65,7 +69,7 @@ async def push_metrics():
             if current_thresholds:
                 alerts = alert_logger.check_thresholds(metrics, current_thresholds)
 
-            insert_metric(metrics)
+            db.insert_metric(metrics)
 
             message = {
                 "type": "metrics",
@@ -76,6 +80,16 @@ async def push_metrics():
         except Exception as e:
             print(f"Error pushing metrics: {e}")
         await asyncio.sleep(PUSH_INTERVAL)
+
+
+async def periodic_flush():
+    from database import FLUSH_INTERVAL
+    while True:
+        await asyncio.sleep(FLUSH_INTERVAL)
+        try:
+            db.flush()
+        except Exception as e:
+            print(f"Error flushing metrics: {e}")
 
 
 @app.get("/metrics")
@@ -112,7 +126,7 @@ async def get_metrics_history(
 ):
     if start_time >= end_time:
         raise HTTPException(status_code=400, detail="start_time 必须小于 end_time")
-    data = query_metrics(start_time, end_time, downsample, max_points)
+    data = db.query_metrics(start_time, end_time, downsample, max_points)
     return {
         "start_time": start_time,
         "end_time": end_time,
@@ -129,7 +143,7 @@ async def export_metrics_csv(
 ):
     if start_time >= end_time:
         raise HTTPException(status_code=400, detail="start_time 必须小于 end_time")
-    data = query_metrics(start_time, end_time, None, 100000)
+    data = db.query_metrics(start_time, end_time, None, 100000)
 
     output = io.StringIO()
     writer = csv.writer(output)

@@ -3,13 +3,7 @@
 > vite --port 1112 --host
 
 
-  VITE v5.4.21  ready in 187 ms
+  VITE v5.4.21  ready in 293 ms
 
   ➜  Local:   http://localhost:1112/
   ➜  Network: http://172.26.246.87:1112/
-12:33:34 PM [vite] hmr update /src/App.jsx
-12:33:35 PM [vite] hmr update /src/components/TimeRangeSelector.jsx
-12:33:36 PM [vite] hmr update /src/index.css
-1:52:08 PM [vite] hmr update /src/App.jsx
-1:52:08 PM [vite] hmr update /src/components/TimeRangeSelector.jsx
-1:52:10 PM [vite] hmr update /src/index.css

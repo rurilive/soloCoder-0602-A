@@ -14,8 +14,10 @@ export default function TimeRangeSelector({ onRangeChange, onModeChange, isLive 
   const [showCustom, setShowCustom] = useState(false)
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  const [validationError, setValidationError] = useState('')
 
   const handlePresetClick = (seconds) => {
+    setValidationError('')
     if (seconds === 'custom') {
       setShowCustom(true)
       setSelectedPreset('custom')
@@ -28,9 +30,17 @@ export default function TimeRangeSelector({ onRangeChange, onModeChange, isLive 
   }
 
   const handleCustomApply = () => {
-    if (!customStart || !customEnd) return
+    if (!customStart || !customEnd) {
+      setValidationError('请选择开始时间和结束时间')
+      return
+    }
     const startTime = new Date(customStart).getTime() / 1000
     const endTime = new Date(customEnd).getTime() / 1000
+    if (startTime >= endTime) {
+      setValidationError('开始时间必须早于结束时间')
+      return
+    }
+    setValidationError('')
     const duration = endTime - startTime
     onRangeChange(startTime, endTime, calculateDownsample(duration))
   }
@@ -98,6 +108,9 @@ export default function TimeRangeSelector({ onRangeChange, onModeChange, isLive 
           <button className="btn btn-primary" onClick={handleCustomApply}>
             应用
           </button>
+          {validationError && (
+            <span className="validation-error">{validationError}</span>
+          )}
         </div>
       )}
     </div>

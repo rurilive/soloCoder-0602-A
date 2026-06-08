@@ -19,6 +19,7 @@ export default function App() {
   const [isLive, setIsLive] = useState(true)
   const [timeRange, setTimeRange] = useState({ start: null, end: null, downsample: null })
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const { isConnected, lastMessage } = useWebSocket(WS_URL)
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function App() {
 
   const fetchHistoryData = async (start, end, downsample) => {
     setLoadingHistory(true)
+    setErrorMessage('')
     try {
       const params = new URLSearchParams({
         start_time: start,
@@ -61,9 +63,12 @@ export default function App() {
       if (res.ok) {
         const result = await res.json()
         setData(result.data || [])
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setErrorMessage(err.detail || `请求失败 (${res.status})`)
       }
     } catch (e) {
-      console.error('Failed to fetch history:', e)
+      setErrorMessage('网络错误，无法获取历史数据')
     } finally {
       setLoadingHistory(false)
     }
@@ -71,6 +76,7 @@ export default function App() {
 
   const handleModeChange = (live) => {
     setIsLive(live)
+    setErrorMessage('')
     if (live) {
       setData([])
     }
@@ -150,6 +156,9 @@ export default function App() {
         {loadingHistory && <span className="loading-indicator">加载中...</span>}
         {!isLive && !loadingHistory && (
           <span className="data-count">共 {data.length} 条数据</span>
+        )}
+        {errorMessage && (
+          <span className="error-message">❌ {errorMessage}</span>
         )}
       </div>
 

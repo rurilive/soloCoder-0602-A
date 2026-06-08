@@ -352,3 +352,14 @@ body {
   color: #94a3b8;
   font-size: 14px;
 }
+
+.error-message {
+  color: #ef4444;
+  font-size: 14px;
+}
+
+.validation-error {
+  color: #ef4444;
+  font-size: 13px;
+  align-self: center;
+}
