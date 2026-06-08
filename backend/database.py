@@ -20,13 +20,15 @@ class MetricsDB:
                 cls._instance._conn = None
                 cls._instance._buffer = []
                 cls._instance._buffer_lock = threading.Lock()
+                cls._instance._conn_lock = threading.Lock()
             return cls._instance
 
     def _get_conn(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-        return self._conn
+        with self._conn_lock:
+            if self._conn is None:
+                self._conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                self._conn.row_factory = sqlite3.Row
+            return self._conn
 
     def init_db(self):
         conn = self._get_conn()
@@ -88,59 +90,61 @@ class MetricsDB:
         downsample: Optional[str] = None,
         max_points: int = 1000,
     ) -> List[Dict]:
-        self.flush()
-        conn = self._get_conn()
-        cursor = conn.cursor()
+        with self._buffer_lock:
+            self._flush_unlocked()
+            conn = self._get_conn()
+            cursor = conn.cursor()
 
-        if downsample:
-            interval_seconds = _parse_interval(downsample)
-            if interval_seconds > 0:
-                cursor.execute(
-                    """
-                    SELECT
-                        (CAST(timestamp AS INTEGER) / ?) * ? AS bucket_time,
-                        AVG(cpu_usage) AS cpu_usage,
-                        AVG(memory_usage) AS memory_usage,
-                        AVG(request_count) AS request_count,
-                        AVG(response_time) AS response_time,
-                        COUNT(*) AS sample_count
-                    FROM metrics
-                    WHERE timestamp >= ? AND timestamp <= ?
-                    GROUP BY bucket_time
-                    ORDER BY bucket_time
-                    """,
-                    (interval_seconds, interval_seconds, start_time, end_time),
-                )
-                rows = cursor.fetchall()
-                return [
-                    {
-                        "timestamp": row["bucket_time"],
-                        "cpu_usage": row["cpu_usage"],
-                        "memory_usage": row["memory_usage"],
-                        "request_count": row["request_count"],
-                        "response_time": row["response_time"],
-                    }
-                    for row in rows
-                ]
+            if downsample:
+                interval_seconds = _parse_interval(downsample)
+                if interval_seconds > 0:
+                    cursor.execute(
+                        """
+                        SELECT
+                            (CAST(timestamp AS INTEGER) / ?) * ? AS bucket_time,
+                            AVG(cpu_usage) AS cpu_usage,
+                            AVG(memory_usage) AS memory_usage,
+                            AVG(request_count) AS request_count,
+                            AVG(response_time) AS response_time,
+                            COUNT(*) AS sample_count
+                        FROM metrics
+                        WHERE timestamp >= ? AND timestamp <= ?
+                        GROUP BY bucket_time
+                        ORDER BY bucket_time
+                        """,
+                        (interval_seconds, interval_seconds, start_time, end_time),
+                    )
+                    rows = cursor.fetchall()
+                    return [
+                        {
+                            "timestamp": row["bucket_time"],
+                            "cpu_usage": row["cpu_usage"],
+                            "memory_usage": row["memory_usage"],
+                            "request_count": row["request_count"],
+                            "response_time": row["response_time"],
+                        }
+                        for row in rows
+                    ]
 
-        cursor.execute(
-            """
-            SELECT timestamp, cpu_usage, memory_usage, request_count, response_time
-            FROM metrics
-            WHERE timestamp >= ? AND timestamp <= ?
-            ORDER BY timestamp
-            LIMIT ?
-            """,
-            (start_time, end_time, max_points),
-        )
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+            cursor.execute(
+                """
+                SELECT timestamp, cpu_usage, memory_usage, request_count, response_time
+                FROM metrics
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp
+                LIMIT ?
+                """,
+                (start_time, end_time, max_points),
+            )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
 
     def close(self):
         self.flush()
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._conn_lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
 
 def _parse_interval(interval: str) -> int:

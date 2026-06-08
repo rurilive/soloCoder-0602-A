@@ -84,10 +84,11 @@ async def push_metrics():
 
 async def periodic_flush():
     from database import FLUSH_INTERVAL
+    loop = asyncio.get_event_loop()
     while True:
         await asyncio.sleep(FLUSH_INTERVAL)
         try:
-            db.flush()
+            await loop.run_in_executor(None, db.flush)
         except Exception as e:
             print(f"Error flushing metrics: {e}")
 
