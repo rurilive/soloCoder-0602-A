@@ -3,7 +3,7 @@ import os
 import threading
 from typing import List, Dict, Optional
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "metrics.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "metrics.db")
 
 FLUSH_INTERVAL = 10
 FLUSH_THRESHOLD = 50
@@ -26,8 +26,11 @@ class MetricsDB:
     def _get_conn(self) -> sqlite3.Connection:
         with self._conn_lock:
             if self._conn is None:
-                self._conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+                self._conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
                 self._conn.row_factory = sqlite3.Row
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.execute("PRAGMA busy_timeout=5000")
             return self._conn
 
     def init_db(self):

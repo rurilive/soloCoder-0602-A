@@ -207,18 +207,18 @@ async def get_alert_stats(
     return db.get_alert_stats(start_time, end_time)
 
 
+@app.put("/alerts/acknowledge-all")
+async def acknowledge_all_alerts():
+    count = db.acknowledge_all_alerts()
+    return {"status": "ok", "acknowledged_count": count}
+
+
 @app.put("/alerts/{alert_id}/acknowledge")
 async def acknowledge_alert(alert_id: int):
     success = db.acknowledge_alert(alert_id)
     if not success:
         raise HTTPException(status_code=404, detail="告警记录不存在")
     return {"status": "ok"}
-
-
-@app.put("/alerts/acknowledge-all")
-async def acknowledge_all_alerts():
-    count = db.acknowledge_all_alerts()
-    return {"status": "ok", "acknowledged_count": count}
 
 
 @app.delete("/alerts")
