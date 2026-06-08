@@ -3,6 +3,7 @@ import { useWebSocket } from './hooks/useWebSocket'
 import MetricChart from './components/MetricChart'
 import AlertBanner from './components/AlertBanner'
 import ThresholdModal from './components/ThresholdModal'
+import TimeRangeSelector from './components/TimeRangeSelector'
 import { METRIC_CONFIGS, isInAlert } from './utils/thresholds'
 
 const MAX_DATA_POINTS = 60
@@ -15,6 +16,9 @@ export default function App() {
   const [currentAlerts, setCurrentAlerts] = useState([])
   const [showAlerts, setShowAlerts] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [isLive, setIsLive] = useState(true)
+  const [timeRange, setTimeRange] = useState({ start: null, end: null, downsample: null })
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const { isConnected, lastMessage } = useWebSocket(WS_URL)
 
   useEffect(() => {
@@ -25,7 +29,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (lastMessage && lastMessage.type === 'metrics') {
+    if (!isLive || !lastMessage) return
+    if (lastMessage.type === 'metrics') {
       const newData = lastMessage.data
       setData((prev) => {
         const updated = [...prev, newData]
@@ -40,7 +45,58 @@ export default function App() {
         setShowAlerts(true)
       }
     }
-  }, [lastMessage])
+  }, [lastMessage, isLive])
+
+  const fetchHistoryData = async (start, end, downsample) => {
+    setLoadingHistory(true)
+    try {
+      const params = new URLSearchParams({
+        start_time: start,
+        end_time: end,
+      })
+      if (downsample) {
+        params.append('downsample', downsample)
+      }
+      const res = await fetch(`${API_URL}/metrics/history?${params}`)
+      if (res.ok) {
+        const result = await res.json()
+        setData(result.data || [])
+      }
+    } catch (e) {
+      console.error('Failed to fetch history:', e)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  const handleModeChange = (live) => {
+    setIsLive(live)
+    if (live) {
+      setData([])
+    }
+  }
+
+  const handleRangeChange = (start, end, downsample) => {
+    setTimeRange({ start, end, downsample })
+    fetchHistoryData(start, end, downsample)
+  }
+
+  const handleExportCSV = async () => {
+    if (!timeRange.start || !timeRange.end) {
+      alert('请先选择时间范围')
+      return
+    }
+    try {
+      const params = new URLSearchParams({
+        start_time: timeRange.start,
+        end_time: timeRange.end,
+      })
+      const url = `${API_URL}/metrics/export?${params}`
+      window.open(url, '_blank')
+    } catch (e) {
+      console.error('Failed to export CSV:', e)
+    }
+  }
 
   const saveThresholds = async (newThresholds) => {
     try {
@@ -74,11 +130,28 @@ export default function App() {
           <span className={`status-badge ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? '● 已连接' : '● 未连接'}
           </span>
+          {!isLive && (
+            <button className="btn btn-secondary" onClick={handleExportCSV}>
+              📥 导出 CSV
+            </button>
+          )}
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>
             ⚙️ 设置阈值
           </button>
         </div>
       </header>
+
+      <div className="control-bar">
+        <TimeRangeSelector
+          onRangeChange={handleRangeChange}
+          onModeChange={handleModeChange}
+          isLive={isLive}
+        />
+        {loadingHistory && <span className="loading-indicator">加载中...</span>}
+        {!isLive && !loadingHistory && (
+          <span className="data-count">共 {data.length} 条数据</span>
+        )}
+      </div>
 
       {showAlerts && (
         <AlertBanner

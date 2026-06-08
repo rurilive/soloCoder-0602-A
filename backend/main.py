@@ -1,8 +1,13 @@
 import asyncio
 import time
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import csv
+import io
+from datetime import datetime
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from config import HOST, PORT, PUSH_INTERVAL
 from metrics.collector import SystemMetricsCollector
@@ -10,6 +15,7 @@ from metrics.simulator import BusinessMetricsSimulator
 from metrics.models import MetricsData, ThresholdConfig
 from websocket.manager import ConnectionManager
 from alerts.logger import AlertLogger
+from database import insert_metric, query_metrics
 
 
 collector = SystemMetricsCollector()
@@ -59,6 +65,8 @@ async def push_metrics():
             if current_thresholds:
                 alerts = alert_logger.check_thresholds(metrics, current_thresholds)
 
+            insert_metric(metrics)
+
             message = {
                 "type": "metrics",
                 "data": metrics,
@@ -93,6 +101,57 @@ async def set_thresholds(config: ThresholdConfig):
 @app.get("/thresholds")
 async def get_thresholds():
     return current_thresholds
+
+
+@app.get("/metrics/history")
+async def get_metrics_history(
+    start_time: float = Query(..., description="开始时间戳 (Unix 秒)"),
+    end_time: float = Query(..., description="结束时间戳 (Unix 秒)"),
+    downsample: Optional[str] = Query(None, description="降采样间隔，如 1m, 5m, 1h, 1d"),
+    max_points: int = Query(1000, description="最大返回数据点数"),
+):
+    if start_time >= end_time:
+        raise HTTPException(status_code=400, detail="start_time 必须小于 end_time")
+    data = query_metrics(start_time, end_time, downsample, max_points)
+    return {
+        "start_time": start_time,
+        "end_time": end_time,
+        "downsample": downsample,
+        "count": len(data),
+        "data": data,
+    }
+
+
+@app.get("/metrics/export")
+async def export_metrics_csv(
+    start_time: float = Query(..., description="开始时间戳 (Unix 秒)"),
+    end_time: float = Query(..., description="结束时间戳 (Unix 秒)"),
+):
+    if start_time >= end_time:
+        raise HTTPException(status_code=400, detail="start_time 必须小于 end_time")
+    data = query_metrics(start_time, end_time, None, 100000)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["timestamp", "datetime", "cpu_usage", "memory_usage", "request_count", "response_time"])
+    for row in data:
+        dt = datetime.fromtimestamp(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+        writer.writerow([
+            row["timestamp"],
+            dt,
+            row["cpu_usage"],
+            row["memory_usage"],
+            row["request_count"],
+            row["response_time"],
+        ])
+
+    output.seek(0)
+    filename = f"metrics_{int(start_time)}_{int(end_time)}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.websocket("/ws")
