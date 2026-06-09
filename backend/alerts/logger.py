@@ -242,9 +242,9 @@ class AlertLogger:
             # 判断是否在静默期
             suppressed = 1 if self.is_in_silence_window(silence_windows, ts) else 0
 
-            # 若规则未指定具体 severity，则根据偏离度动态计算
+            # 判断 severity：若为 "auto" 或不在预定义集合中，则根据偏离度动态计算
             severity = rule_severity
-            if severity not in ("warning", "critical", "info", "error"):
+            if severity == "auto" or severity not in ("warning", "critical", "info", "error"):
                 severity = self._compute_severity(
                     display_value,
                     threshold_value if isinstance(threshold_value, (int, float)) else 0,
@@ -307,7 +307,7 @@ class AlertLogger:
                     "id": None,
                     "name": f"{metric}_max",
                     "enabled": True,
-                    "severity": "warning",
+                    "severity": "auto",
                     "condition": {"op": "gt", "metric": metric, "value": value},
                     "silence_windows": [],
                 })
@@ -317,7 +317,7 @@ class AlertLogger:
                     "id": None,
                     "name": f"{metric}_min",
                     "enabled": True,
-                    "severity": "warning",
+                    "severity": "auto",
                     "condition": {"op": "lt", "metric": metric, "value": value},
                     "silence_windows": [],
                 })

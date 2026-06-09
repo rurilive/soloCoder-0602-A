@@ -339,6 +339,15 @@ class MetricsDB:
         del d["silence_windows_json"]
         return d
 
+    @staticmethod
+    def _normalize_silence_windows(value) -> Optional[str]:
+        """将 silence_windows 规范化为数据库存储格式：空/None/[] → NULL，非空 → JSON"""
+        if value is None:
+            return None
+        if isinstance(value, list) and len(value) == 0:
+            return None
+        return json.dumps(value)
+
     def create_alert_rule(self, rule: Dict) -> int:
         import time as _time
         now = _time.time()
@@ -355,7 +364,7 @@ class MetricsDB:
                 1 if rule.get("enabled", True) else 0,
                 rule.get("severity", "warning"),
                 json.dumps(rule["condition"]),
-                json.dumps(rule.get("silence_windows", [])) if rule.get("silence_windows") else None,
+                self._normalize_silence_windows(rule.get("silence_windows")),
                 now,
                 now,
             ),
@@ -387,7 +396,7 @@ class MetricsDB:
             params.append(json.dumps(rule["condition"]))
         if "silence_windows" in rule:
             fields.append("silence_windows_json = ?")
-            params.append(json.dumps(rule["silence_windows"]) if rule["silence_windows"] else None)
+            params.append(self._normalize_silence_windows(rule["silence_windows"]))
         params.append(rule_id)
         cursor.execute(f"UPDATE alert_rules SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()

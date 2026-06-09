@@ -18,6 +18,25 @@ const SEVERITY_LABELS = {
   critical: { text: '严重',   className: 'severity-critical' },
 }
 
+function _getSeverityInfo(severity) {
+  const key = String(severity || 'warning').toLowerCase()
+  if (SEVERITY_LABELS[key]) return SEVERITY_LABELS[key]
+  let hash = 0
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0
+    hash = hash >>> 0
+  }
+  const hue = hash % 360
+  return {
+    text: key.charAt(0).toUpperCase() + key.slice(1),
+    className: 'severity-unknown',
+    dotColor: `hsl(${hue}, 70%, 55%)`,
+    inlineBadgeBg: `hsla(${hue}, 70%, 55%, 0.2)`,
+    inlineBadgeColor: `hsl(${hue}, 70%, 65%)`,
+    inlineBorderColor: `hsl(${hue}, 70%, 55%)`,
+  }
+}
+
 const THRESHOLD_TYPE_LABEL = {
   max: '超过上限',
   min: '低于下限',
@@ -49,16 +68,26 @@ function NotificationCard({ notification, onDismiss }) {
     return () => clearTimeout(timer)
   }, [handleDismiss, severity])
 
-  const severityInfo = SEVERITY_LABELS[severity] || SEVERITY_LABELS.warning
+  const severityInfo = _getSeverityInfo(severity)
   const label = rule_name || METRIC_LABEL_MAP[metric] || metric
   const unit = METRIC_UNIT_MAP[metric] || ''
   const direction = THRESHOLD_TYPE_LABEL[threshold_type] || '触发规则'
 
+  const cardStyle = severityInfo.inlineBorderColor
+    ? { borderLeft: `4px solid ${severityInfo.inlineBorderColor}` }
+    : undefined
+  const badgeStyle = severityInfo.inlineBadgeBg
+    ? { background: severityInfo.inlineBadgeBg, color: severityInfo.inlineBadgeColor }
+    : undefined
+
   return (
-    <div className={`notification-card ${severityInfo.className}`}>
+    <div className={`notification-card ${severityInfo.className}`} style={cardStyle}>
       <div className="notification-header">
         <span className="notification-title">⚠ {label}</span>
-        <span className={`notification-severity ${severityInfo.className}`}>
+        <span
+          className={`notification-severity ${severityInfo.className}`}
+          style={badgeStyle}
+        >
           {severityInfo.text}
         </span>
         <button className="notification-close" onClick={handleDismiss}>×</button>

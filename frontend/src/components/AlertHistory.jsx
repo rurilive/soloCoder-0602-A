@@ -38,6 +38,24 @@ const SEVERITY_STYLES = {
   },
 }
 
+function _severityFallbackStyle(severity) {
+  const key = String(severity || 'unknown').toLowerCase()
+  if (SEVERITY_STYLES[key]) return SEVERITY_STYLES[key]
+  let hash = 0
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0
+    hash = hash >>> 0
+  }
+  const hue = hash % 360
+  return {
+    badge: 'severity-unknown',
+    label: key.charAt(0).toUpperCase() + key.slice(1),
+    dot: `hsl(${hue}, 70%, 55%)`,
+    inlineBg: `hsla(${hue}, 70%, 55%, 0.15)`,
+    inlineColor: `hsl(${hue}, 70%, 65%)`,
+  }
+}
+
 function formatDateTime(timestamp) {
   const d = new Date(timestamp * 1000)
   return d.toLocaleString('zh-CN', {
@@ -50,9 +68,10 @@ function formatDateTime(timestamp) {
 }
 
 function SeverityBadge({ severity }) {
-  const s = SEVERITY_STYLES[severity] || SEVERITY_STYLES.warning
+  const s = _severityFallbackStyle(severity)
+  const style = s.inlineBg ? { background: s.inlineBg, color: s.inlineColor } : undefined
   return (
-    <span className={`severity-badge ${s.badge}`} title={s.label}>
+    <span className={`severity-badge ${s.badge}`} title={s.label} style={style}>
       <span className="severity-dot" style={{ background: s.dot }} />
       {s.label}
     </span>
