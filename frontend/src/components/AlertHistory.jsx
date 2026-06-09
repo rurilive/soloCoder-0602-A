@@ -7,6 +7,37 @@ const METRIC_LABEL_MAP = Object.fromEntries(
   METRIC_CONFIGS.map((c) => [c.key, c.label])
 )
 
+const SEVERITY_OPTIONS = [
+  { value: '', label: '全部严重程度' },
+  { value: 'info', label: '提示 (Info)' },
+  { value: 'warning', label: '警告 (Warning)' },
+  { value: 'error', label: '错误 (Error)' },
+  { value: 'critical', label: '严重 (Critical)' },
+]
+
+const SEVERITY_STYLES = {
+  info: {
+    badge: 'severity-info',
+    label: '提示',
+    dot: '#3b82f6',
+  },
+  warning: {
+    badge: 'severity-warning',
+    label: '警告',
+    dot: '#f59e0b',
+  },
+  error: {
+    badge: 'severity-error',
+    label: '错误',
+    dot: '#ef4444',
+  },
+  critical: {
+    badge: 'severity-critical',
+    label: '严重',
+    dot: '#dc2626',
+  },
+}
+
 function formatDateTime(timestamp) {
   const d = new Date(timestamp * 1000)
   return d.toLocaleString('zh-CN', {
@@ -18,12 +49,23 @@ function formatDateTime(timestamp) {
   })
 }
 
+function SeverityBadge({ severity }) {
+  const s = SEVERITY_STYLES[severity] || SEVERITY_STYLES.warning
+  return (
+    <span className={`severity-badge ${s.badge}`} title={s.label}>
+      <span className="severity-dot" style={{ background: s.dot }} />
+      {s.label}
+    </span>
+  )
+}
+
 export default function AlertHistory({ isOpen, onClose }) {
   const [alerts, setAlerts] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [filterMetric, setFilterMetric] = useState('')
   const [filterAck, setFilterAck] = useState('')
+  const [filterSeverity, setFilterSeverity] = useState('')
   const [alertStats, setAlertStats] = useState(null)
   const pageSize = 20
 
@@ -35,6 +77,7 @@ export default function AlertHistory({ isOpen, onClose }) {
       })
       if (filterMetric) params.append('metric', filterMetric)
       if (filterAck !== '') params.append('acknowledged', filterAck)
+      if (filterSeverity) params.append('severity', filterSeverity)
       const res = await fetch(`${API_URL}/alerts?${params}`)
       if (res.ok) {
         const data = await res.json()
@@ -44,7 +87,7 @@ export default function AlertHistory({ isOpen, onClose }) {
     } catch (e) {
       console.error('Failed to fetch alerts:', e)
     }
-  }, [page, filterMetric, filterAck])
+  }, [page, filterMetric, filterAck, filterSeverity])
 
   const fetchAlertStats = useCallback(async () => {
     try {
@@ -111,6 +154,11 @@ export default function AlertHistory({ isOpen, onClose }) {
 
   if (!isOpen) return null
 
+  const severityMap = (alertStats?.by_severity || []).reduce((acc, s) => {
+    acc[s.severity] = s
+    return acc
+  }, {})
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal alert-history-modal" onClick={(e) => e.stopPropagation()}>
@@ -133,12 +181,10 @@ export default function AlertHistory({ isOpen, onClose }) {
               <span className="alert-stat-value">{alertStats.overview.acknowledged_count || 0}</span>
               <span className="alert-stat-label">已确认</span>
             </div>
-            {alertStats.by_metric.length > 0 && (
-              <div className="alert-stat-card">
-                <span className="alert-stat-value">{alertStats.by_metric[0].metric}</span>
-                <span className="alert-stat-label">最频繁指标</span>
-              </div>
-            )}
+            <div className="alert-stat-card critical-card">
+              <span className="alert-stat-value">{severityMap.critical?.count || 0}</span>
+              <span className="alert-stat-label">严重告警</span>
+            </div>
           </div>
         )}
 
@@ -150,6 +196,14 @@ export default function AlertHistory({ isOpen, onClose }) {
             <option value="">全部指标</option>
             {METRIC_CONFIGS.map((c) => (
               <option key={c.key} value={c.key}>{c.label}</option>
+            ))}
+          </select>
+          <select
+            value={filterSeverity}
+            onChange={(e) => { setFilterSeverity(e.target.value); setPage(0) }}
+          >
+            {SEVERITY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
           <select
@@ -175,18 +229,33 @@ export default function AlertHistory({ isOpen, onClose }) {
             alerts.map((alert) => (
               <div
                 key={alert.id}
-                className={`alert-item ${alert.acknowledged ? 'acknowledged' : ''}`}
+                className={`alert-item ${alert.acknowledged ? 'acknowledged' : ''} ${alert.suppressed ? 'suppressed' : ''}`}
               >
                 <div className="alert-item-left">
+                  <SeverityBadge severity={alert.severity} />
                   <span className={`alert-item-badge ${alert.threshold_type}`}>
-                    {alert.threshold_type === 'max' ? '↑ 超上限' : '↓ 低下限'}
+                    {alert.threshold_type === 'max'
+                      ? '↑ 超上限'
+                      : alert.threshold_type === 'min'
+                      ? '↓ 低下限'
+                      : alert.threshold_type === 'composite'
+                      ? '⚙ 复合'
+                      : alert.threshold_type}
                   </span>
                   <span className="alert-item-metric">
-                    {METRIC_LABEL_MAP[alert.metric] || alert.metric}
+                    {alert.rule_name
+                      ? <span className="alert-rule-name">{alert.rule_name}</span>
+                      : (METRIC_LABEL_MAP[alert.metric] || alert.metric)}
                   </span>
                   <span className="alert-item-value">
-                    {alert.value.toFixed(2)} (阈值: {alert.threshold_value})
+                    {typeof alert.value === 'number' ? alert.value.toFixed(2) : alert.value}
+                    {alert.threshold_type !== 'rule' && (
+                      <span className="alert-threshold-hint"> (阈值: {alert.threshold_value})</span>
+                    )}
                   </span>
+                  {alert.suppressed ? (
+                    <span className="alert-item-silenced" title="静默期产生，未弹窗通知">🔕 已静默</span>
+                  ) : null}
                 </div>
                 <div className="alert-item-right">
                   <span className="alert-item-time">{formatDateTime(alert.timestamp)}</span>

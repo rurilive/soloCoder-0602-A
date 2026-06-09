@@ -12,7 +12,12 @@ from typing import Optional
 from config import HOST, PORT, PUSH_INTERVAL
 from metrics.collector import SystemMetricsCollector
 from metrics.simulator import BusinessMetricsSimulator
-from metrics.models import MetricsData, ThresholdConfig
+from metrics.models import (
+    MetricsData,
+    ThresholdConfig,
+    AlertRuleCreate,
+    AlertRuleUpdate,
+)
 from websocket.manager import ConnectionManager
 from alerts.logger import AlertLogger
 from database import db
@@ -66,7 +71,15 @@ async def push_metrics():
             }
 
             alerts = []
-            if current_thresholds:
+            try:
+                rules = db.list_alert_rules(enabled_only=True)
+            except Exception as e:
+                print(f"Error loading alert rules: {e}")
+                rules = []
+
+            if rules:
+                alerts = alert_logger.check_rules(metrics, rules)
+            elif current_thresholds:
                 alerts = alert_logger.check_thresholds(metrics, current_thresholds)
 
             db.insert_metric(metrics)
@@ -82,6 +95,8 @@ async def push_metrics():
             await manager.broadcast(message)
 
             for alert in alerts:
+                if alert.get("suppressed", 0) == 1:
+                    continue
                 notification = {
                     "type": "alert_notification",
                     "data": {
@@ -91,6 +106,8 @@ async def push_metrics():
                         "threshold_value": alert["threshold_value"],
                         "severity": alert.get("severity", "warning"),
                         "timestamp": alert["timestamp"],
+                        "rule_id": alert.get("rule_id"),
+                        "rule_name": alert.get("rule_name"),
                     },
                 }
                 await manager.broadcast(notification)
@@ -207,10 +224,11 @@ async def get_alerts(
     end_time: Optional[float] = Query(None, description="结束时间戳 (Unix 秒)"),
     metric: Optional[str] = Query(None, description="指标名称过滤"),
     acknowledged: Optional[int] = Query(None, description="确认状态 (0=未确认, 1=已确认)"),
+    severity: Optional[str] = Query(None, description="严重程度筛选: warning/critical/info/error"),
     limit: int = Query(50, description="每页数量"),
     offset: int = Query(0, description="偏移量"),
 ):
-    return db.query_alerts(start_time, end_time, metric, acknowledged, limit, offset)
+    return db.query_alerts(start_time, end_time, metric, acknowledged, severity, limit, offset)
 
 
 @app.get("/alerts/stats")
@@ -242,6 +260,55 @@ async def delete_alerts(
 ):
     count = db.delete_alerts(start_time, end_time)
     return {"status": "ok", "deleted_count": count}
+
+
+# ========== 告警规则 CRUD ==========
+@app.get("/alert-rules")
+async def list_alert_rules(enabled_only: bool = Query(False, description="仅返回启用的规则")):
+    return {"rules": db.list_alert_rules(enabled_only=enabled_only)}
+
+
+@app.get("/alert-rules/{rule_id}")
+async def get_alert_rule(rule_id: int):
+    rule = db.get_alert_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="告警规则不存在")
+    return rule
+
+
+@app.post("/alert-rules")
+async def create_alert_rule(payload: AlertRuleCreate):
+    rule_dict = payload.model_dump()
+    if rule_dict.get("silence_windows"):
+        rule_dict["silence_windows"] = [
+            w.model_dump() if hasattr(w, "model_dump") else w
+            for w in rule_dict["silence_windows"]
+        ]
+    rule_id = db.create_alert_rule(rule_dict)
+    return {"status": "ok", "id": rule_id}
+
+
+@app.put("/alert-rules/{rule_id}")
+async def update_alert_rule(rule_id: int, payload: AlertRuleUpdate):
+    existing = db.get_alert_rule(rule_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="告警规则不存在")
+    update_dict = payload.model_dump(exclude_none=True)
+    if "silence_windows" in update_dict:
+        update_dict["silence_windows"] = [
+            w.model_dump() if hasattr(w, "model_dump") else w
+            for w in update_dict["silence_windows"]
+        ]
+    ok = db.update_alert_rule(rule_id, update_dict)
+    return {"status": "ok" if ok else "noop"}
+
+
+@app.delete("/alert-rules/{rule_id}")
+async def delete_alert_rule(rule_id: int):
+    ok = db.delete_alert_rule(rule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="告警规则不存在")
+    return {"status": "ok"}
 
 
 @app.websocket("/ws")

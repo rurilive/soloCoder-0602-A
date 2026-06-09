@@ -1,7 +1,8 @@
 import sqlite3
 import os
+import json
 import threading
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "metrics.db")
 
@@ -33,6 +34,17 @@ class MetricsDB:
                 self._conn.execute("PRAGMA busy_timeout=5000")
             return self._conn
 
+    def _migrate_alerts_table(self, cursor):
+        columns = [row[1] for row in cursor.execute("PRAGMA table_info(alerts)").fetchall()]
+        if "severity" not in columns:
+            cursor.execute("ALTER TABLE alerts ADD COLUMN severity TEXT DEFAULT 'warning'")
+        if "rule_id" not in columns:
+            cursor.execute("ALTER TABLE alerts ADD COLUMN rule_id INTEGER")
+        if "suppressed" not in columns:
+            cursor.execute("ALTER TABLE alerts ADD COLUMN suppressed INTEGER NOT NULL DEFAULT 0")
+        if "rule_name" not in columns:
+            cursor.execute("ALTER TABLE alerts ADD COLUMN rule_name TEXT")
+
     def init_db(self):
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -62,10 +74,15 @@ class MetricsDB:
                 value REAL NOT NULL,
                 threshold_type TEXT NOT NULL,
                 threshold_value REAL NOT NULL,
-                acknowledged INTEGER NOT NULL DEFAULT 0
+                acknowledged INTEGER NOT NULL DEFAULT 0,
+                severity TEXT DEFAULT 'warning',
+                rule_id INTEGER,
+                suppressed INTEGER NOT NULL DEFAULT 0,
+                rule_name TEXT
             )
             """
         )
+        self._migrate_alerts_table(cursor)
         cursor.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)
@@ -81,7 +98,33 @@ class MetricsDB:
             CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged)
             """
         )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                severity TEXT NOT NULL DEFAULT 'warning',
+                condition_json TEXT NOT NULL,
+                silence_windows_json TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled)
+            """
+        )
         conn.commit()
+        self._seed_default_rules()
 
     def insert_metric(self, metrics: Dict):
         with self._buffer_lock:
@@ -170,23 +213,192 @@ class MetricsDB:
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
+    def _seed_default_rules(self):
+        cursor = self._get_conn().cursor()
+        cursor.execute("SELECT COUNT(*) as cnt FROM alert_rules")
+        if cursor.fetchone()["cnt"] > 0:
+            return
+        now = __import__("time").time()
+        default_rules = [
+            {
+                "name": "CPU高负载",
+                "description": "CPU使用率超过阈值",
+                "severity": "warning",
+                "condition_json": json.dumps({
+                    "op": "gt",
+                    "metric": "cpu_usage",
+                    "value": 80,
+                }),
+            },
+            {
+                "name": "内存紧张",
+                "description": "内存使用率超过阈值",
+                "severity": "warning",
+                "condition_json": json.dumps({
+                    "op": "gt",
+                    "metric": "memory_usage",
+                    "value": 85,
+                }),
+            },
+            {
+                "name": "响应缓慢",
+                "description": "响应时间超过阈值",
+                "severity": "warning",
+                "condition_json": json.dumps({
+                    "op": "gt",
+                    "metric": "response_time",
+                    "value": 200,
+                }),
+            },
+            {
+                "name": "系统严重过载",
+                "description": "CPU和内存同时超过高阈值（AND组合）",
+                "severity": "critical",
+                "condition_json": json.dumps({
+                    "op": "and",
+                    "conditions": [
+                        {"op": "gt", "metric": "cpu_usage", "value": 90},
+                        {"op": "gt", "metric": "memory_usage", "value": 90},
+                    ],
+                }),
+            },
+            {
+                "name": "服务异常",
+                "description": "响应时间过长或请求数异常低（OR组合）",
+                "severity": "critical",
+                "condition_json": json.dumps({
+                    "op": "or",
+                    "conditions": [
+                        {"op": "gt", "metric": "response_time", "value": 500},
+                        {"op": "lt", "metric": "request_count", "value": 5},
+                    ],
+                }),
+            },
+        ]
+        for rule in default_rules:
+            cursor.execute(
+                """
+                INSERT INTO alert_rules (name, description, enabled, severity, condition_json, silence_windows_json, created_at, updated_at)
+                VALUES (?, ?, 1, ?, ?, NULL, ?, ?)
+                """,
+                (rule["name"], rule["description"], rule["severity"], rule["condition_json"], now, now),
+            )
+        self._get_conn().commit()
+
     def insert_alert(self, alert: Dict):
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO alerts (timestamp, metric, value, threshold_type, threshold_value, acknowledged)
-            VALUES (?, ?, ?, ?, ?, 0)
+            INSERT INTO alerts (timestamp, metric, value, threshold_type, threshold_value, acknowledged, severity, rule_id, suppressed, rule_name)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
             """,
             (
                 alert["timestamp"],
-                alert["metric"],
-                alert["value"],
-                alert["threshold_type"],
-                alert["threshold_value"],
+                alert.get("metric", "composite"),
+                alert.get("value", 0),
+                alert.get("threshold_type", "rule"),
+                alert.get("threshold_value", 0),
+                alert.get("severity", "warning"),
+                alert.get("rule_id"),
+                alert.get("suppressed", 0),
+                alert.get("rule_name"),
             ),
         )
         conn.commit()
+
+    def list_alert_rules(self, enabled_only: bool = False) -> List[Dict]:
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        if enabled_only:
+            cursor.execute("SELECT * FROM alert_rules WHERE enabled = 1 ORDER BY id")
+        else:
+            cursor.execute("SELECT * FROM alert_rules ORDER BY id")
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["condition"] = json.loads(d["condition_json"]) if d["condition_json"] else None
+            d["silence_windows"] = json.loads(d["silence_windows_json"]) if d["silence_windows_json"] else []
+            del d["condition_json"]
+            del d["silence_windows_json"]
+            result.append(d)
+        return result
+
+    def get_alert_rule(self, rule_id: int) -> Optional[Dict]:
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM alert_rules WHERE id = ?", (rule_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["condition"] = json.loads(d["condition_json"]) if d["condition_json"] else None
+        d["silence_windows"] = json.loads(d["silence_windows_json"]) if d["silence_windows_json"] else []
+        del d["condition_json"]
+        del d["silence_windows_json"]
+        return d
+
+    def create_alert_rule(self, rule: Dict) -> int:
+        import time as _time
+        now = _time.time()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO alert_rules (name, description, enabled, severity, condition_json, silence_windows_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                rule["name"],
+                rule.get("description", ""),
+                1 if rule.get("enabled", True) else 0,
+                rule.get("severity", "warning"),
+                json.dumps(rule["condition"]),
+                json.dumps(rule.get("silence_windows", [])) if rule.get("silence_windows") else None,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+    def update_alert_rule(self, rule_id: int, rule: Dict) -> bool:
+        import time as _time
+        now = _time.time()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        fields = ["updated_at = ?"]
+        params = [now]
+        if "name" in rule:
+            fields.append("name = ?")
+            params.append(rule["name"])
+        if "description" in rule:
+            fields.append("description = ?")
+            params.append(rule["description"])
+        if "enabled" in rule:
+            fields.append("enabled = ?")
+            params.append(1 if rule["enabled"] else 0)
+        if "severity" in rule:
+            fields.append("severity = ?")
+            params.append(rule["severity"])
+        if "condition" in rule:
+            fields.append("condition_json = ?")
+            params.append(json.dumps(rule["condition"]))
+        if "silence_windows" in rule:
+            fields.append("silence_windows_json = ?")
+            params.append(json.dumps(rule["silence_windows"]) if rule["silence_windows"] else None)
+        params.append(rule_id)
+        cursor.execute(f"UPDATE alert_rules SET {', '.join(fields)} WHERE id = ?", params)
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def delete_alert_rule(self, rule_id: int) -> bool:
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+        conn.commit()
+        return cursor.rowcount > 0
 
     def query_alerts(
         self,
@@ -194,6 +406,7 @@ class MetricsDB:
         end_time: Optional[float] = None,
         metric: Optional[str] = None,
         acknowledged: Optional[int] = None,
+        severity: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict]:
@@ -213,12 +426,15 @@ class MetricsDB:
         if acknowledged is not None:
             conditions.append("acknowledged = ?")
             params.append(acknowledged)
+        if severity is not None:
+            conditions.append("severity = ?")
+            params.append(severity)
         where_clause = ""
         if conditions:
             where_clause = "WHERE " + " AND ".join(conditions)
         cursor.execute(
             f"""
-            SELECT id, timestamp, metric, value, threshold_type, threshold_value, acknowledged
+            SELECT id, timestamp, metric, value, threshold_type, threshold_value, acknowledged, severity, rule_id, suppressed, rule_name
             FROM alerts
             {where_clause}
             ORDER BY timestamp DESC
@@ -335,10 +551,24 @@ class MetricsDB:
             params,
         )
         by_type = [dict(row) for row in cursor.fetchall()]
+        cursor.execute(
+            f"""
+            SELECT
+                severity,
+                COUNT(*) AS count,
+                SUM(CASE WHEN acknowledged = 0 THEN 1 ELSE 0 END) AS unacknowledged
+            FROM alerts
+            {where_clause}
+            GROUP BY severity
+            """,
+            params,
+        )
+        by_severity = [dict(row) for row in cursor.fetchall()]
         return {
             "overview": overview,
             "by_metric": by_metric,
             "by_type": by_type,
+            "by_severity": by_severity,
         }
 
     def get_metrics_stats(
