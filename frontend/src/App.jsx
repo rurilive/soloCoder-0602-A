@@ -27,6 +27,7 @@ export default function App() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [notifications, setNotifications] = useState([])
+  const [pendingNotifications, setPendingNotifications] = useState([])
   const [notificationsPaused, setNotificationsPaused] = useState(false)
   const [notifIdCounter, setNotifIdCounter] = useState(0)
   const { isConnected, lastMessage } = useWebSocket(WS_URL)
@@ -71,7 +72,10 @@ export default function App() {
 
   useEffect(() => {
     if (!lastMessage || lastMessage.type !== 'alert_notification') return
-    if (notificationsPaused) return
+    if (notificationsPaused) {
+      setPendingNotifications((p) => [...p, lastMessage.data])
+      return
+    }
     setNotifIdCounter((prev) => {
       const nextId = prev + 1
       setNotifications((ns) => [
@@ -84,6 +88,29 @@ export default function App() {
 
   const dismissNotification = useCallback((id) => {
     setNotifications((ns) => ns.filter((n) => n.id !== id))
+  }, [])
+
+  const toggleNotificationPause = useCallback(() => {
+    setNotificationsPaused((prevPaused) => {
+      const willResume = prevPaused
+      if (willResume) {
+        setPendingNotifications((pending) => {
+          if (pending.length > 0) {
+            setNotifIdCounter((counter) => {
+              let nextId = counter
+              const withIds = pending.map((n) => {
+                nextId += 1
+                return { ...n, id: nextId }
+              })
+              setNotifications((ns) => [...ns, ...withIds])
+              return nextId
+            })
+          }
+          return []
+        })
+      }
+      return !prevPaused
+    })
   }, [])
 
   const fetchHistoryData = async (start, end, downsample) => {
@@ -193,10 +220,12 @@ export default function App() {
           </button>
           <button
             className={`btn ${notificationsPaused ? 'btn-secondary' : 'btn-notification-on'}`}
-            onClick={() => setNotificationsPaused((p) => !p)}
+            onClick={toggleNotificationPause}
             title={notificationsPaused ? '恢复通知弹窗' : '暂停通知弹窗'}
           >
-            {notificationsPaused ? '🔕 通知已暂停' : '🔔 通知开启'}
+            {notificationsPaused
+              ? `🔕 通知已暂停${pendingNotifications.length > 0 ? ` (${pendingNotifications.length})` : ''}`
+              : '🔔 通知开启'}
           </button>
         </div>
       </header>
