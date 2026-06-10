@@ -1,295 +1,43 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useWebSocket } from './hooks/useWebSocket'
-import MetricChart from './components/MetricChart'
-import AlertBanner from './components/AlertBanner'
-import ThresholdModal from './components/ThresholdModal'
-import TimeRangeSelector from './components/TimeRangeSelector'
-import AlertHistory from './components/AlertHistory'
-import StatsPanel from './components/StatsPanel'
-import NotificationPopup from './components/NotificationPopup'
-import { METRIC_CONFIGS, isInAlert } from './utils/thresholds'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useAuth } from './contexts/AuthContext'
+import Navbar from './components/Navbar'
+import Home from './pages/Home'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import Section from './pages/Section'
+import PostDetail from './pages/PostDetail'
+import CreatePost from './pages/CreatePost'
+import EditPost from './pages/EditPost'
+import Profile from './pages/Profile'
+import Admin from './pages/Admin'
 
-const MAX_DATA_POINTS = 60
-const WS_URL = 'ws://localhost:1111/ws'
-const API_URL = 'http://localhost:1111'
+function PrivateRoute({ children }) {
+  const { isAuthenticated } = useAuth()
+  return isAuthenticated ? children : <Navigate to="/login" />
+}
+
+function AdminRoute({ children }) {
+  const { isAdmin } = useAuth()
+  return isAdmin ? children : <Navigate to="/" />
+}
 
 export default function App() {
-  const [data, setData] = useState([])
-  const [thresholds, setThresholds] = useState({})
-  const [currentAlerts, setCurrentAlerts] = useState([])
-  const [showAlerts, setShowAlerts] = useState(false)
-  const [showModal, setShowModal] = useState(false)
-  const [showAlertHistory, setShowAlertHistory] = useState(false)
-  const [showStats, setShowStats] = useState(false)
-  const [unackCount, setUnackCount] = useState(0)
-  const [isLive, setIsLive] = useState(true)
-  const [timeRange, setTimeRange] = useState({ start: null, end: null, downsample: null })
-  const [loadingHistory, setLoadingHistory] = useState(false)
-  const [errorMessage, setErrorMessage] = useState('')
-  const [notifications, setNotifications] = useState([])
-  const [pendingNotifications, setPendingNotifications] = useState([])
-  const [notificationsPaused, setNotificationsPaused] = useState(false)
-  const [notifIdCounter, setNotifIdCounter] = useState(0)
-  const { isConnected, lastMessage } = useWebSocket(WS_URL)
-
-  useEffect(() => {
-    fetch(`${API_URL}/thresholds`)
-      .then((res) => res.json())
-      .then((data) => setThresholds(data || {}))
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    const fetchUnackCount = () => {
-      fetch(`${API_URL}/alerts?acknowledged=0&limit=1`)
-        .then((res) => res.json())
-        .then((data) => setUnackCount(data.total || 0))
-        .catch(() => {})
-    }
-    fetchUnackCount()
-    const interval = setInterval(fetchUnackCount, 10000)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    if (!isLive || !lastMessage) return
-    if (lastMessage.type === 'metrics') {
-      const newData = lastMessage.data
-      setData((prev) => {
-        const updated = [...prev, newData]
-        if (updated.length > MAX_DATA_POINTS) {
-          return updated.slice(updated.length - MAX_DATA_POINTS)
-        }
-        return updated
-      })
-
-      if (lastMessage.alerts && lastMessage.alerts.length > 0) {
-        setCurrentAlerts(lastMessage.alerts)
-        setShowAlerts(true)
-      }
-    }
-  }, [lastMessage, isLive])
-
-  useEffect(() => {
-    if (!lastMessage || lastMessage.type !== 'alert_notification') return
-    if (notificationsPaused) {
-      setPendingNotifications((p) => [...p, lastMessage.data])
-      return
-    }
-    setNotifIdCounter((prev) => {
-      const nextId = prev + 1
-      setNotifications((ns) => [
-        ...ns,
-        { ...lastMessage.data, id: nextId },
-      ])
-      return nextId
-    })
-  }, [lastMessage, notificationsPaused])
-
-  const dismissNotification = useCallback((id) => {
-    setNotifications((ns) => ns.filter((n) => n.id !== id))
-  }, [])
-
-  const toggleNotificationPause = useCallback(() => {
-    setNotificationsPaused((prevPaused) => {
-      const willResume = prevPaused
-      if (willResume) {
-        setPendingNotifications((pending) => {
-          if (pending.length > 0) {
-            setNotifIdCounter((counter) => {
-              let nextId = counter
-              const withIds = pending.map((n) => {
-                nextId += 1
-                return { ...n, id: nextId }
-              })
-              setNotifications((ns) => [...ns, ...withIds])
-              return nextId
-            })
-          }
-          return []
-        })
-      }
-      return !prevPaused
-    })
-  }, [])
-
-  const fetchHistoryData = async (start, end, downsample) => {
-    setLoadingHistory(true)
-    setErrorMessage('')
-    try {
-      const params = new URLSearchParams({
-        start_time: start,
-        end_time: end,
-      })
-      if (downsample) {
-        params.append('downsample', downsample)
-      }
-      const res = await fetch(`${API_URL}/metrics/history?${params}`)
-      if (res.ok) {
-        const result = await res.json()
-        setData(result.data || [])
-      } else {
-        const err = await res.json().catch(() => ({}))
-        setErrorMessage(err.detail || `请求失败 (${res.status})`)
-      }
-    } catch (e) {
-      setErrorMessage('网络错误，无法获取历史数据')
-    } finally {
-      setLoadingHistory(false)
-    }
-  }
-
-  const handleModeChange = (live) => {
-    setIsLive(live)
-    setErrorMessage('')
-    if (live) {
-      setData([])
-    }
-  }
-
-  const handleRangeChange = (start, end, downsample) => {
-    setTimeRange({ start, end, downsample })
-    fetchHistoryData(start, end, downsample)
-  }
-
-  const handleExportCSV = async () => {
-    if (!timeRange.start || !timeRange.end) {
-      alert('请先选择时间范围')
-      return
-    }
-    try {
-      const params = new URLSearchParams({
-        start_time: timeRange.start,
-        end_time: timeRange.end,
-      })
-      const url = `${API_URL}/metrics/export?${params}`
-      window.open(url, '_blank')
-    } catch (e) {
-      console.error('Failed to export CSV:', e)
-    }
-  }
-
-  const saveThresholds = async (newThresholds) => {
-    try {
-      const res = await fetch(`${API_URL}/thresholds`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newThresholds),
-      })
-      if (res.ok) {
-        setThresholds(newThresholds)
-        setShowModal(false)
-      }
-    } catch (e) {
-      console.error('Failed to save thresholds:', e)
-    }
-  }
-
-  const checkMetricAlert = (metricKey) => {
-    if (data.length === 0) return false
-    const latest = data[data.length - 1]
-    const minVal = thresholds[`${metricKey}_min`]
-    const maxVal = thresholds[`${metricKey}_max`]
-    return isInAlert(latest[metricKey], minVal, maxVal)
-  }
-
   return (
-    <div className="app">
-      <header className="header">
-        <h1>📊 实时监控仪表盘</h1>
-        <div className="header-actions">
-          <span className={`status-badge ${isConnected ? 'connected' : 'disconnected'}`}>
-            {isConnected ? '● 已连接' : '● 未连接'}
-          </span>
-          <button
-            className={`btn btn-secondary ${unackCount > 0 ? 'btn-alert-pulse' : ''}`}
-            onClick={() => setShowAlertHistory(true)}
-          >
-            🔔 告警 {unackCount > 0 && `(${unackCount})`}
-          </button>
-          <button className="btn btn-secondary" onClick={() => setShowStats(true)}>
-            📈 统计
-          </button>
-          {!isLive && (
-            <button className="btn btn-secondary" onClick={handleExportCSV}>
-              📥 导出 CSV
-            </button>
-          )}
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            ⚙️ 设置阈值
-          </button>
-          <button
-            className={`btn ${notificationsPaused ? 'btn-secondary' : 'btn-notification-on'}`}
-            onClick={toggleNotificationPause}
-            title={notificationsPaused ? '恢复通知弹窗' : '暂停通知弹窗'}
-          >
-            {notificationsPaused
-              ? `🔕 通知已暂停${pendingNotifications.length > 0 ? ` (${pendingNotifications.length})` : ''}`
-              : '🔔 通知开启'}
-          </button>
-        </div>
-      </header>
-
-      <div className="control-bar">
-        <TimeRangeSelector
-          onRangeChange={handleRangeChange}
-          onModeChange={handleModeChange}
-          isLive={isLive}
-        />
-        {loadingHistory && <span className="loading-indicator">加载中...</span>}
-        {!isLive && !loadingHistory && (
-          <span className="data-count">共 {data.length} 条数据</span>
-        )}
-        {errorMessage && (
-          <span className="error-message">❌ {errorMessage}</span>
-        )}
-      </div>
-
-      {showAlerts && (
-        <AlertBanner
-          alerts={currentAlerts}
-          onClose={() => setShowAlerts(false)}
-        />
-      )}
-
-      <main className="dashboard">
-        {METRIC_CONFIGS.map((config) => (
-          <MetricChart
-            key={config.key}
-            data={data}
-            metricKey={config.key}
-            label={config.label}
-            unit={config.unit}
-            color={config.color}
-            thresholds={thresholds}
-            hasAlert={checkMetricAlert(config.key)}
-          />
-        ))}
+    <>
+      <Navbar />
+      <main className="container">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/section/:id" element={<Section />} />
+          <Route path="/post/:id" element={<PostDetail />} />
+          <Route path="/post/new/:sectionId" element={<PrivateRoute><CreatePost /></PrivateRoute>} />
+          <Route path="/post/:id/edit" element={<PrivateRoute><EditPost /></PrivateRoute>} />
+          <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+        </Routes>
       </main>
-
-      {showModal && (
-        <ThresholdModal
-          thresholds={thresholds}
-          onSave={saveThresholds}
-          onClose={() => setShowModal(false)}
-        />
-      )}
-
-      <AlertHistory
-        isOpen={showAlertHistory}
-        onClose={() => setShowAlertHistory(false)}
-      />
-
-      <StatsPanel
-        isOpen={showStats}
-        onClose={() => setShowStats(false)}
-        timeRange={timeRange}
-      />
-
-      <NotificationPopup
-        notifications={notifications}
-        onDismiss={dismissNotification}
-      />
-    </div>
+    </>
   )
 }
