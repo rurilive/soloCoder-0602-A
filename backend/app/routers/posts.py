@@ -8,12 +8,15 @@ from app.database import get_db
 from app.models import Moderator, Post, Reply, Section, User
 from app.schemas import (
     AuthorBrief,
+    PaginatedResponse,
     PostCreate,
     PostListResponse,
     PostResponse,
+    PostSearchItem,
     PostUpdate,
     ReplyCreate,
     ReplyResponse,
+    SectionBrief,
 )
 
 router = APIRouter(prefix="/api", tags=["posts"])
@@ -387,3 +390,79 @@ async def list_replies(
         )
         for reply in replies
     ]
+
+
+@router.get("/posts/search", response_model=PaginatedResponse)
+async def search_posts(
+    q: str,
+    skip: int = 0,
+    limit: int = 20,
+    section_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    if not q.strip():
+        return PaginatedResponse(items=[], total=0, skip=skip, limit=limit)
+
+    keyword = f"%{q.strip()}%"
+
+    count_stmt = select(func.count(Post.id)).where(
+        Post.is_deleted == False,
+        (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
+    )
+    if section_id is not None:
+        count_stmt = count_stmt.where(Post.section_id == section_id)
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(Post)
+        .where(
+            Post.is_deleted == False,
+            (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
+        )
+        .order_by(Post.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .options(selectinload(Post.author), selectinload(Post.section))
+    )
+    if section_id is not None:
+        stmt = stmt.where(Post.section_id == section_id)
+
+    result = await db.execute(stmt)
+    posts = result.scalars().all()
+
+    items = []
+    for post in posts:
+        reply_count_result = await db.execute(
+            select(func.count(Reply.id)).where(
+                Reply.post_id == post.id, Reply.is_deleted == False
+            )
+        )
+        reply_count = reply_count_result.scalar() or 0
+
+        items.append(
+            PostSearchItem(
+                id=post.id,
+                title=post.title,
+                content=post.content,
+                section_id=post.section_id,
+                section=SectionBrief(
+                    id=post.section.id,
+                    name=post.section.name,
+                ),
+                author_id=post.author_id,
+                author=AuthorBrief(
+                    id=post.author.id,
+                    username=post.author.username,
+                    avatar=post.author.avatar,
+                ),
+                is_pinned=post.is_pinned,
+                is_deleted=post.is_deleted,
+                view_count=post.view_count,
+                reply_count=reply_count,
+                created_at=post.created_at,
+                updated_at=post.updated_at,
+            )
+        )
+
+    return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)

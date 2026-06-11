@@ -145,3 +145,35 @@ class ModeratorResponse(BaseModel):
 
 class MuteUpdate(BaseModel):
     is_muted: bool
+
+
+class SectionBrief(BaseModel):
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
+class PostSearchItem(BaseModel):
+    id: int
+    title: str
+    content: str
+    section_id: int
+    section: SectionBrief
+    author_id: int
+    author: AuthorBrief
+    is_pinned: bool
+    is_deleted: bool
+    view_count: int
+    reply_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedResponse(BaseModel):
+    items: list[PostSearchItem]
+    total: int
+    skip: int
+    limit: int

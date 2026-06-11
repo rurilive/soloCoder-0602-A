@@ -10,6 +10,7 @@ import CreatePost from './pages/CreatePost'
 import EditPost from './pages/EditPost'
 import Profile from './pages/Profile'
 import Admin from './pages/Admin'
+import Search from './pages/Search'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -44,6 +45,7 @@ export default function App() {
       <main className="container">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/search" element={<Search />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/section/:id" element={<Section />} />
