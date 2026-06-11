@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -410,12 +410,14 @@ async def search_posts(
 
     keyword = f"%{q.strip()}%"
 
-    count_stmt = select(func.count(Post.id)).where(
+    base_where = [
         Post.is_deleted == False,
         (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
-    )
+    ]
     if section_id is not None:
-        count_stmt = count_stmt.where(Post.section_id == section_id)
+        base_where.append(Post.section_id == section_id)
+
+    count_stmt = select(func.count(Post.id)).where(*base_where)
     count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
 
@@ -431,18 +433,15 @@ async def search_posts(
 
     stmt = (
         select(Post, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"))
+        .join(Post.author)
+        .join(Post.section)
         .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
-        .options(joinedload(Post.author), joinedload(Post.section))
-        .where(
-            Post.is_deleted == False,
-            (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
-        )
+        .options(contains_eager(Post.author), contains_eager(Post.section))
+        .where(*base_where)
         .order_by(Post.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
-    if section_id is not None:
-        stmt = stmt.where(Post.section_id == section_id)
 
     result = await db.execute(stmt)
     rows = result.unique().all()
