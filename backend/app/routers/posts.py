@@ -404,6 +404,8 @@ async def search_posts(
         raise HTTPException(status_code=400, detail="skip 不能为负数")
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit 必须在 1-100 之间")
+    if len(q) > 100:
+        raise HTTPException(status_code=400, detail="搜索关键词不能超过100个字符")
 
     if not q.strip():
         return PaginatedResponse(items=[], total=0, skip=skip, limit=limit)
@@ -431,16 +433,26 @@ async def search_posts(
         .subquery()
     )
 
-    stmt = (
-        select(Post, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"))
-        .join(Post.author)
-        .join(Post.section)
+    filtered_posts = (
+        select(
+            Post.id.label("fp_id"),
+            func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"),
+        )
         .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
-        .options(contains_eager(Post.author), contains_eager(Post.section))
         .where(*base_where)
         .order_by(Post.created_at.desc())
         .offset(skip)
         .limit(limit)
+        .subquery()
+    )
+
+    stmt = (
+        select(Post, filtered_posts.c.reply_count)
+        .join(filtered_posts, Post.id == filtered_posts.c.fp_id)
+        .join(Post.author, isouter=True)
+        .join(Post.section, isouter=True)
+        .options(contains_eager(Post.author), contains_eager(Post.section))
+        .order_by(Post.created_at.desc())
     )
 
     result = await db.execute(stmt)
@@ -455,14 +467,14 @@ async def search_posts(
                 content=post.content,
                 section_id=post.section_id,
                 section=SectionBrief(
-                    id=post.section.id,
-                    name=post.section.name,
+                    id=post.section.id if post.section else post.section_id,
+                    name=post.section.name if post.section else "未知板块",
                 ),
                 author_id=post.author_id,
                 author=AuthorBrief(
-                    id=post.author.id,
-                    username=post.author.username,
-                    avatar=post.author.avatar,
+                    id=post.author.id if post.author else post.author_id,
+                    username=post.author.username if post.author else "未知用户",
+                    avatar=post.author.avatar if post.author else None,
                 ),
                 is_pinned=post.is_pinned,
                 view_count=post.view_count,
