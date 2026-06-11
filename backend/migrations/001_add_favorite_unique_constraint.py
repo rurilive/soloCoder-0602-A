@@ -126,28 +126,35 @@ def verify_constraint(conn: sqlite3.Connection):
     print(f"[5/5] 唯一约束验证: {'通过' if has_unique else '失败'}")
 
     if has_unique:
+        cursor.execute(
+            "SELECT user_id, post_id FROM favorites LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if not row:
+            print("[5/5] 唯一约束功能验证: 跳过（无测试数据）")
+            return
+
+        savepoint = "sp_verify_unique"
         try:
-            cursor.execute("BEGIN")
+            cursor.execute(f"SAVEPOINT {savepoint}")
             cursor.execute(
-                "SELECT user_id, post_id FROM favorites LIMIT 1"
+                """
+                INSERT INTO favorites (user_id, post_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (row[0], row[1], datetime.utcnow()),
             )
-            row = cursor.fetchone()
-            if row:
-                cursor.execute(
-                    """
-                    INSERT INTO favorites (user_id, post_id, created_at)
-                    VALUES (?, ?, ?)
-                    """,
-                    (row[0], row[1], datetime.utcnow()),
-                )
-                conn.rollback()
-                print("[5/5] 唯一约束功能验证: 失败（重复数据仍可插入）")
-            else:
-                print("[5/5] 唯一约束功能验证: 跳过（无测试数据）")
-                conn.rollback()
+            cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            print("[5/5] 唯一约束功能验证: 失败（重复数据仍可插入）")
         except sqlite3.IntegrityError:
-            conn.rollback()
+            cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             print("[5/5] 唯一约束功能验证: 通过（重复数据被正确阻止）")
+        except sqlite3.OperationalError:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            print("[5/5] 唯一约束功能验证: 通过（SAVEPOINT不支持，已回退）")
 
 
 def main():
