@@ -1,11 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager, selectinload
 
 from app.auth import get_admin_user, get_current_user
 from app.database import get_db
-from app.models import User
-from app.schemas import UserResponse, UserUpdate
+from app.models import Favorite, Post, Reply, Section, User
+from app.schemas import (
+    AuthorBrief,
+    FavoritePostItem,
+    PaginatedFavoritesResponse,
+    SectionBrief,
+    UserResponse,
+    UserUpdate,
+)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -55,3 +63,76 @@ async def list_users(
 ):
     result = await db.execute(select(User).offset(skip).limit(limit))
     return result.scalars().all()
+
+
+@router.get("/me/favorites", response_model=PaginatedFavoritesResponse)
+async def get_my_favorites(
+    skip: int = 0,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if skip < 0:
+        raise HTTPException(status_code=400, detail="skip 不能为负数")
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit 必须在 1-100 之间")
+
+    count_stmt = select(func.count(Favorite.id)).where(
+        Favorite.user_id == current_user.id
+    )
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+
+    reply_count_subq = (
+        select(
+            Reply.post_id.label("rc_post_id"),
+            func.count(Reply.id).label("rc_count"),
+        )
+        .where(Reply.is_deleted == False)
+        .group_by(Reply.post_id)
+        .subquery()
+    )
+
+    stmt = (
+        select(Favorite, Post, Section, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"))
+        .join(Post, Favorite.post_id == Post.id)
+        .join(Section, Post.section_id == Section.id, isouter=True)
+        .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
+        .where(
+            Favorite.user_id == current_user.id,
+            Post.is_deleted == False,
+        )
+        .options(selectinload(Post.author))
+        .order_by(Favorite.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    items = []
+    for favorite, post, section, reply_count in rows:
+        items.append(
+            FavoritePostItem(
+                id=post.id,
+                title=post.title,
+                section_id=post.section_id,
+                author_id=post.author_id,
+                author=AuthorBrief(
+                    id=post.author.id,
+                    username=post.author.username,
+                    avatar=post.author.avatar,
+                ),
+                section=SectionBrief(
+                    id=section.id if section else post.section_id,
+                    name=section.name if section else "未知板块",
+                ),
+                is_pinned=post.is_pinned,
+                view_count=post.view_count,
+                reply_count=reply_count,
+                created_at=post.created_at,
+                favorited_at=favorite.created_at,
+            )
+        )
+
+    return PaginatedFavoritesResponse(items=items, total=total, skip=skip, limit=limit)

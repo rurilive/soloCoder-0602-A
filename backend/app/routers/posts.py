@@ -3,9 +3,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_optional_current_user
 from app.database import get_db
-from app.models import Moderator, Post, Reply, Section, User
+from app.models import Favorite, Moderator, Post, Reply, Section, User
 from app.schemas import (
     AuthorBrief,
     PaginatedResponse,
@@ -115,7 +115,11 @@ async def create_post(
 
 
 @router.get("/posts/{post_id}", response_model=PostResponse)
-async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
+async def get_post(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
     result = await db.execute(
         select(Post)
         .where(Post.id == post_id, Post.is_deleted == False)
@@ -138,6 +142,16 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
         )
     )
     post = result.scalar_one()
+
+    is_favorited = False
+    if current_user is not None:
+        fav_result = await db.execute(
+            select(Favorite).where(
+                Favorite.user_id == current_user.id,
+                Favorite.post_id == post_id,
+            )
+        )
+        is_favorited = fav_result.scalar_one_or_none() is not None
 
     reply_responses = []
     for reply in post.replies:
@@ -175,6 +189,7 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
         created_at=post.created_at,
         updated_at=post.updated_at,
         replies=reply_responses,
+        is_favorited=is_favorited,
     )
 
 
@@ -485,3 +500,53 @@ async def search_posts(
         )
 
     return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
+
+
+@router.post("/posts/{post_id}/favorite")
+async def favorite_post(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.is_deleted == False)
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    result = await db.execute(
+        select(Favorite).where(
+            Favorite.user_id == current_user.id,
+            Favorite.post_id == post_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail="已收藏该帖子")
+
+    favorite = Favorite(user_id=current_user.id, post_id=post_id)
+    db.add(favorite)
+    await db.commit()
+    return {"message": "收藏成功", "favorited": True}
+
+
+@router.delete("/posts/{post_id}/favorite")
+async def unfavorite_post(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Favorite).where(
+            Favorite.user_id == current_user.id,
+            Favorite.post_id == post_id,
+        )
+    )
+    favorite = result.scalar_one_or_none()
+    if not favorite:
+        raise HTTPException(status_code=400, detail="未收藏该帖子")
+
+    await db.delete(favorite)
+    await db.commit()
+    return {"message": "取消收藏成功", "favorited": False}

@@ -40,6 +40,21 @@ export default function PostDetail() {
   const isAuthor = user && post && user.id === post.author_id
   const canDelete = isAuthor || isAdmin || isModerator
   const canPin = isAdmin || isModerator
+  const canFavorite = isAuthenticated && post && !post.is_deleted
+
+  const handleFavorite = async () => {
+    try {
+      if (post.is_favorited) {
+        await api.delete(`/api/posts/${id}/favorite`)
+      } else {
+        await api.post(`/api/posts/${id}/favorite`)
+      }
+      const res = await api.get(`/api/posts/${id}`)
+      setPost(res.data)
+    } catch (err) {
+      alert('操作失败: ' + (err.response?.data?.detail || err.message))
+    }
+  }
 
   const handlePin = async () => {
     try {
@@ -105,6 +120,14 @@ export default function PostDetail() {
             <span>👁 {post.view_count} 次浏览</span>
           </div>
           <div className="post-detail-actions">
+            {canFavorite && (
+              <button
+                className={`btn btn-sm ${post.is_favorited ? 'btn-warning' : 'btn-secondary'}`}
+                onClick={handleFavorite}
+              >
+                {post.is_favorited ? '★ 已收藏' : '☆ 收藏'}
+              </button>
+            )}
             {isAuthor && !post.is_deleted && (
               <button className="btn btn-sm btn-secondary" onClick={() => navigate(`/post/${id}/edit`)}>编辑</button>
             )}

@@ -77,3 +77,15 @@ class Moderator(Base):
 
     user: Mapped["User"] = relationship("User", lazy="selectin")
     section: Mapped["Section"] = relationship("Section", back_populates="moderators")
+
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", lazy="selectin")
+    post: Mapped["Post"] = relationship("Post", lazy="selectin")

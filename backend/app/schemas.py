@@ -105,6 +105,7 @@ class PostResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     replies: list[ReplyResponse] = []
+    is_favorited: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -173,6 +174,29 @@ class PostSearchItem(BaseModel):
 
 class PaginatedResponse(BaseModel):
     items: list[PostSearchItem]
+    total: int
+    skip: int
+    limit: int
+
+
+class FavoritePostItem(BaseModel):
+    id: int
+    title: str
+    section_id: int
+    author_id: int
+    author: AuthorBrief
+    section: SectionBrief
+    is_pinned: bool
+    view_count: int
+    reply_count: int = 0
+    created_at: datetime
+    favorited_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedFavoritesResponse(BaseModel):
+    items: list[FavoritePostItem]
     total: int
     skip: int
     limit: int
