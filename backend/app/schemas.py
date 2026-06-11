@@ -163,7 +163,6 @@ class PostSearchItem(BaseModel):
     author_id: int
     author: AuthorBrief
     is_pinned: bool
-    is_deleted: bool
     view_count: int
     reply_count: int = 0
     created_at: datetime

@@ -414,8 +414,19 @@ async def search_posts(
     count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
 
+    reply_count_subq = (
+        select(
+            Reply.post_id.label("rc_post_id"),
+            func.count(Reply.id).label("rc_count"),
+        )
+        .where(Reply.is_deleted == False)
+        .group_by(Reply.post_id)
+        .subquery()
+    )
+
     stmt = (
-        select(Post)
+        select(Post, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"))
+        .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
         .where(
             Post.is_deleted == False,
             (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
@@ -429,17 +440,10 @@ async def search_posts(
         stmt = stmt.where(Post.section_id == section_id)
 
     result = await db.execute(stmt)
-    posts = result.scalars().all()
+    rows = result.all()
 
     items = []
-    for post in posts:
-        reply_count_result = await db.execute(
-            select(func.count(Reply.id)).where(
-                Reply.post_id == post.id, Reply.is_deleted == False
-            )
-        )
-        reply_count = reply_count_result.scalar() or 0
-
+    for post, reply_count in rows:
         items.append(
             PostSearchItem(
                 id=post.id,
@@ -457,7 +461,6 @@ async def search_posts(
                     avatar=post.author.avatar,
                 ),
                 is_pinned=post.is_pinned,
-                is_deleted=post.is_deleted,
                 view_count=post.view_count,
                 reply_count=reply_count,
                 created_at=post.created_at,
