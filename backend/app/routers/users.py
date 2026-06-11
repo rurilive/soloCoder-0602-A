@@ -94,24 +94,28 @@ async def get_my_favorites(
     )
 
     stmt = (
-        select(Favorite, Post, Section, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"))
+        select(Favorite, Post, Section, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"), User)
         .join(Post, Favorite.post_id == Post.id)
+        .join(User, Post.author_id == User.id, isouter=True)
         .join(Section, Post.section_id == Section.id, isouter=True)
         .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
         .where(
             Favorite.user_id == current_user.id,
             Post.is_deleted == False,
         )
-        .options(selectinload(Post.author))
+        .options(
+            contains_eager(Post.author, alias=User),
+            contains_eager(Post.section, alias=Section),
+        )
         .order_by(Favorite.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
     result = await db.execute(stmt)
-    rows = result.all()
+    rows = result.unique().all()
 
     items = []
-    for favorite, post, section, reply_count in rows:
+    for favorite, post, section, reply_count, _author in rows:
         items.append(
             FavoritePostItem(
                 id=post.id,
