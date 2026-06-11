@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -400,6 +400,11 @@ async def search_posts(
     section_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    if skip < 0:
+        raise HTTPException(status_code=400, detail="skip 不能为负数")
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit 必须在 1-100 之间")
+
     if not q.strip():
         return PaginatedResponse(items=[], total=0, skip=skip, limit=limit)
 
@@ -427,6 +432,7 @@ async def search_posts(
     stmt = (
         select(Post, func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"))
         .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
+        .options(joinedload(Post.author), joinedload(Post.section))
         .where(
             Post.is_deleted == False,
             (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
@@ -434,13 +440,12 @@ async def search_posts(
         .order_by(Post.created_at.desc())
         .offset(skip)
         .limit(limit)
-        .options(selectinload(Post.author), selectinload(Post.section))
     )
     if section_id is not None:
         stmt = stmt.where(Post.section_id == section_id)
 
     result = await db.execute(stmt)
-    rows = result.all()
+    rows = result.unique().all()
 
     items = []
     for post, reply_count in rows:
