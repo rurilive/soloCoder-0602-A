@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Navbar() {
-  const { user, isAuthenticated, isAdmin, logout } = useAuth()
+  const { user, isAuthenticated, isAdmin, loading, logout } = useAuth()
   const navigate = useNavigate()
 
   const handleLogout = () => {
@@ -16,7 +16,9 @@ export default function Navbar() {
         <Link to="/" className="navbar-brand">📋 论坛系统</Link>
         <div className="navbar-links">
           <Link to="/">首页</Link>
-          {isAuthenticated ? (
+          {loading ? (
+            <span className="navbar-username navbar-loading">加载中...</span>
+          ) : isAuthenticated ? (
             <>
               <span className="navbar-username">{user?.username}</span>
               <Link to="/profile">个人中心</Link>

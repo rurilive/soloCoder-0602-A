@@ -12,12 +12,28 @@ import Profile from './pages/Profile'
 import Admin from './pages/Admin'
 
 function PrivateRoute({ children }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="page-loading">
+        <div className="loading-spinner" />
+        <span>加载中...</span>
+      </div>
+    )
+  }
   return isAuthenticated ? children : <Navigate to="/login" />
 }
 
 function AdminRoute({ children }) {
-  const { isAdmin } = useAuth()
+  const { isAdmin, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="page-loading">
+        <div className="loading-spinner" />
+        <span>加载中...</span>
+      </div>
+    )
+  }
   return isAdmin ? children : <Navigate to="/" />
 }
 
