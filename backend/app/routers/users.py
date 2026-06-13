@@ -45,6 +45,23 @@ async def update_me(
     return current_user
 
 
+@router.get("/by-username/{username}", response_model=AuthorBrief)
+async def get_user_by_username(
+    username: str,
+    _current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return AuthorBrief(
+        id=user.id,
+        username=user.username,
+        avatar=user.avatar,
+    )
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_id))
@@ -63,23 +80,6 @@ async def list_users(
 ):
     result = await db.execute(select(User).offset(skip).limit(limit))
     return result.scalars().all()
-
-
-@router.get("/by-username/{username}", response_model=AuthorBrief)
-async def get_user_by_username(
-    username: str,
-    _current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(User).where(User.username == username))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    return AuthorBrief(
-        id=user.id,
-        username=user.username,
-        avatar=user.avatar,
-    )
 
 
 @router.get("/me/favorites", response_model=PaginatedFavoritesResponse)
