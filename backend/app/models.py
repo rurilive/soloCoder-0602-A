@@ -92,3 +92,22 @@ class Favorite(Base):
 
     user: Mapped["User"] = relationship("User", lazy="selectin")
     post: Mapped["Post"] = relationship("Post", lazy="selectin")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[str] = mapped_column(String(500), nullable=False)
+    post_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("posts.id"), nullable=True)
+    reply_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("replies.id"), nullable=True)
+    actor_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="selectin")
+    actor: Mapped["User | None"] = relationship("User", foreign_keys=[actor_id], lazy="selectin")
+    post: Mapped["Post | None"] = relationship("Post", lazy="selectin")
+    reply: Mapped["Reply | None"] = relationship("Reply", lazy="selectin")

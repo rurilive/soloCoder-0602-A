@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import NotificationBell from './NotificationBell'
 
 export default function Navbar() {
   const { user, isAuthenticated, isAdmin, loading, logout } = useAuth()
@@ -39,6 +40,7 @@ export default function Navbar() {
             <span className="navbar-username navbar-loading">加载中...</span>
           ) : isAuthenticated ? (
             <>
+              <NotificationBell />
               <span className="navbar-username">{user?.username}</span>
               <Link to="/profile">个人中心</Link>
               {isAdmin && <Link to="/admin">管理后台</Link>}

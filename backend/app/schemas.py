@@ -200,3 +200,27 @@ class PaginatedFavoritesResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    type: str
+    content: str
+    post_id: int | None = None
+    reply_id: int | None = None
+    actor: AuthorBrief | None = None
+    is_read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedNotificationsResponse(BaseModel):
+    items: list[NotificationResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class UnreadCountResponse(BaseModel):
+    count: int

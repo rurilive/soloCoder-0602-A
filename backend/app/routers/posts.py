@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,7 +7,7 @@ from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from app.auth import get_current_user, get_optional_current_user
 from app.database import get_db
-from app.models import Favorite, Moderator, Post, Reply, Section, User
+from app.models import Favorite, Moderator, Notification, Post, Reply, Section, User
 from app.schemas import (
     AuthorBrief,
     PaginatedResponse,
@@ -340,9 +342,10 @@ async def create_reply(
         raise HTTPException(status_code=403, detail="您已被禁言，无法回复")
 
     result = await db.execute(
-        select(Post).where(Post.id == post_id, Post.is_deleted == False)
+        select(Post).where(Post.id == post_id, Post.is_deleted == False).options(selectinload(Post.author))
     )
-    if not result.scalar_one_or_none():
+    post = result.scalar_one_or_none()
+    if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
     reply = Reply(
@@ -352,6 +355,40 @@ async def create_reply(
     )
     db.add(reply)
     await db.commit()
+    await db.refresh(reply)
+
+    notifications = []
+
+    if post.author_id != current_user.id:
+        notifications.append(Notification(
+            user_id=post.author_id,
+            type="reply",
+            content=f"{current_user.username} 回复了你的帖子《{post.title}》",
+            post_id=post.id,
+            reply_id=reply.id,
+            actor_id=current_user.id,
+        ))
+
+    mentioned_usernames = re.findall(r'@(\w+)', reply_data.content)
+    if mentioned_usernames:
+        mentioned_users_result = await db.execute(
+            select(User).where(User.username.in_(mentioned_usernames))
+        )
+        mentioned_users = mentioned_users_result.scalars().all()
+        for user in mentioned_users:
+            if user.id != current_user.id and user.id != post.author_id:
+                notifications.append(Notification(
+                    user_id=user.id,
+                    type="mention",
+                    content=f"{current_user.username} 在帖子《{post.title}》中@了你",
+                    post_id=post.id,
+                    reply_id=reply.id,
+                    actor_id=current_user.id,
+                ))
+
+    if notifications:
+        db.add_all(notifications)
+        await db.commit()
 
     result = await db.execute(
         select(Reply).where(Reply.id == reply.id).options(selectinload(Reply.author))

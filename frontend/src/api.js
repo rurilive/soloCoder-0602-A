@@ -25,4 +25,18 @@ api.interceptors.response.use(
   }
 )
 
+export const getUnreadCount = () => api.get('/api/notifications/unread-count')
+
+export const getNotifications = (skip = 0, limit = 20, onlyUnread = false) =>
+  api.get('/api/notifications', { params: { skip, limit, only_unread: onlyUnread } })
+
+export const getRecentNotifications = () =>
+  api.get('/api/notifications', { params: { skip: 0, limit: 5, only_unread: false } })
+
+export const markNotificationAsRead = (id) =>
+  api.post(`/api/notifications/${id}/read`)
+
+export const markAllNotificationsAsRead = () =>
+  api.post('/api/notifications/read-all')
+
 export default api
