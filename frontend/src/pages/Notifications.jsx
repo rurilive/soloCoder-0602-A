@@ -6,11 +6,13 @@ import {
   markAllNotificationsAsRead,
 } from '../api'
 import { formatTime, getTypeIcon, getTypeLabel } from '../utils/notification'
+import { useNotification } from '../contexts/NotificationContext'
 
 const PAGE_SIZE = 20
 
 export default function Notifications() {
   const navigate = useNavigate()
+  const { decrementUnreadCount, resetUnreadCount, refreshUnreadCount } = useNotification()
   const [notifications, setNotifications] = useState([])
   const [total, setTotal] = useState(0)
   const [skip, setSkip] = useState(0)
@@ -35,12 +37,14 @@ export default function Notifications() {
 
   useEffect(() => {
     fetchNotifications()
-  }, [skip, filter])
+    refreshUnreadCount()
+  }, [skip, filter, refreshUnreadCount])
 
   const handleMarkAsRead = async (id, e) => {
     e.stopPropagation()
     try {
       await markNotificationAsRead(id)
+      decrementUnreadCount(1)
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
       )
@@ -55,6 +59,7 @@ export default function Notifications() {
   const handleMarkAllAsRead = async () => {
     try {
       await markAllNotificationsAsRead()
+      resetUnreadCount()
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
       if (filter === 'unread') {
         setTotal(0)
@@ -69,6 +74,7 @@ export default function Notifications() {
     if (!notification.is_read) {
       try {
         await markNotificationAsRead(notification.id)
+        decrementUnreadCount(1)
         setNotifications((prev) =>
           prev.map((n) => (n.id === notification.id ? { ...n, is_read: true } : n))
         )

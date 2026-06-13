@@ -2,27 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   getRecentNotifications,
-  getUnreadCount,
   markNotificationAsRead,
 } from '../api'
 import { formatTime, getTypeIcon } from '../utils/notification'
+import { useNotification } from '../contexts/NotificationContext'
 
 export default function NotificationBell() {
-  const [unreadCount, setUnreadCount] = useState(0)
+  const { unreadCount, decrementUnreadCount, refreshUnreadCount } = useNotification()
   const [notifications, setNotifications] = useState([])
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const dropdownRef = useRef(null)
   const navigate = useNavigate()
-
-  const fetchUnreadCount = async () => {
-    try {
-      const res = await getUnreadCount()
-      setUnreadCount(res.data.count)
-    } catch (err) {
-      console.error('获取未读通知数失败:', err)
-    }
-  }
 
   const fetchRecentNotifications = async () => {
     setLoading(true)
@@ -37,16 +28,11 @@ export default function NotificationBell() {
   }
 
   useEffect(() => {
-    fetchUnreadCount()
-    const interval = setInterval(fetchUnreadCount, 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
     if (isOpen) {
       fetchRecentNotifications()
+      refreshUnreadCount()
     }
-  }, [isOpen])
+  }, [isOpen, refreshUnreadCount])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -66,7 +52,7 @@ export default function NotificationBell() {
     if (!notification.is_read) {
       try {
         await markNotificationAsRead(notification.id)
-        setUnreadCount((prev) => Math.max(0, prev - 1))
+        decrementUnreadCount(1)
         setNotifications((prev) =>
           prev.map((n) => (n.id === notification.id ? { ...n, is_read: true } : n))
         )
