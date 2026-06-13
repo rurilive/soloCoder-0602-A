@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getConversations, createConversation } from '../api'
+import { getConversations, createConversation, getUserByUsername } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatTime } from '../utils/notification'
 
@@ -32,12 +32,12 @@ export default function ChatList() {
   }, [])
 
   const resolveUsernameToId = async (username) => {
-    const allUsersRes = await fetch('http://localhost:1111/api/users?limit=100', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-    })
-    const usersData = await allUsersRes.json()
-    const target = usersData.find((u) => u.username === username.trim())
-    return target?.id || null
+    try {
+      const res = await getUserByUsername(username.trim())
+      return res.data.id
+    } catch {
+      return null
+    }
   }
 
   const handleCreateDM = async (e) => {
@@ -68,20 +68,18 @@ export default function ChatList() {
       return
     }
     try {
-      const allUsersRes = await fetch('http://localhost:1111/api/users?limit=100', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      })
-      const usersData = await allUsersRes.json()
       const usernames = newGroupMembers.split(/[,，\s]+/).filter(Boolean)
       const memberIds = []
       for (const uname of usernames) {
-        const target = usersData.find((u) => u.username === uname.trim())
-        if (!target) {
-          setError(`用户 "${uname}" 不存在`)
+        const trimmed = uname.trim()
+        try {
+          const res = await getUserByUsername(trimmed)
+          if (res.data.id !== user.id) {
+            memberIds.push(res.data.id)
+          }
+        } catch {
+          setError(`用户 "${trimmed}" 不存在`)
           return
-        }
-        if (target.id !== user.id) {
-          memberIds.push(target.id)
         }
       }
       if (memberIds.length === 0) {

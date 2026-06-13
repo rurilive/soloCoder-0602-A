@@ -52,4 +52,7 @@ export const getMessages = (conversationId, skip = 0, limit = 50) =>
 export const markConversationRead = (conversationId) =>
   api.post(`/api/chat/conversations/${conversationId}/read`)
 
+export const getUserByUsername = (username) =>
+  api.get(`/api/users/by-username/${encodeURIComponent(username)}`)
+
 export default api

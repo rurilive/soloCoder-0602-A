@@ -65,6 +65,23 @@ async def list_users(
     return result.scalars().all()
 
 
+@router.get("/by-username/{username}", response_model=AuthorBrief)
+async def get_user_by_username(
+    username: str,
+    _current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return AuthorBrief(
+        id=user.id,
+        username=user.username,
+        avatar=user.avatar,
+    )
+
+
 @router.get("/me/favorites", response_model=PaginatedFavoritesResponse)
 async def get_my_favorites(
     skip: int = 0,
