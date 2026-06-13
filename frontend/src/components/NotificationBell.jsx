@@ -8,7 +8,7 @@ import { formatTime, getTypeIcon } from '../utils/notification'
 import { useNotification } from '../contexts/NotificationContext'
 
 export default function NotificationBell() {
-  const { unreadCount, decrementUnreadCount, refreshUnreadCount } = useNotification()
+  const { unreadCount, decrementUnreadCount } = useNotification()
   const [notifications, setNotifications] = useState([])
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -30,9 +30,8 @@ export default function NotificationBell() {
   useEffect(() => {
     if (isOpen) {
       fetchRecentNotifications()
-      refreshUnreadCount()
     }
-  }, [isOpen, refreshUnreadCount])
+  }, [isOpen])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
