@@ -39,4 +39,17 @@ export const markNotificationAsRead = (id) =>
 export const markAllNotificationsAsRead = () =>
   api.post('/api/notifications/read-all')
 
+export const getChatUnreadCount = () => api.get('/api/chat/unread-count')
+
+export const getConversations = () => api.get('/api/chat/conversations')
+
+export const createConversation = (memberIds, name = null) =>
+  api.post('/api/chat/conversations', { member_ids: memberIds, name })
+
+export const getMessages = (conversationId, skip = 0, limit = 50) =>
+  api.get(`/api/chat/conversations/${conversationId}/messages`, { params: { skip, limit } })
+
+export const markConversationRead = (conversationId) =>
+  api.post(`/api/chat/conversations/${conversationId}/read`)
+
 export default api

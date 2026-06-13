@@ -12,6 +12,8 @@ import Profile from './pages/Profile'
 import Admin from './pages/Admin'
 import Search from './pages/Search'
 import Notifications from './pages/Notifications'
+import ChatList from './pages/ChatList'
+import ChatConversation from './pages/ChatConversation'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -55,6 +57,8 @@ export default function App() {
           <Route path="/post/:id/edit" element={<PrivateRoute><EditPost /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
           <Route path="/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
+          <Route path="/chat" element={<PrivateRoute><ChatList /></PrivateRoute>} />
+          <Route path="/chat/:id" element={<PrivateRoute><ChatConversation /></PrivateRoute>} />
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
         </Routes>
       </main>

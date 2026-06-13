@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.auth import get_password_hash
 from app.database import Base, async_session, engine
 from app.models import User
-from app.routers import admin, auth, notifications, posts, sections, upload, users
+from app.routers import admin, auth, chat, notifications, posts, sections, upload, users
 
 app = FastAPI(title="Forum API", version="1.0.0")
 
@@ -31,6 +31,7 @@ app.include_router(posts.router)
 app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(notifications.router)
+app.include_router(chat.router)
 
 
 @app.on_event("startup")

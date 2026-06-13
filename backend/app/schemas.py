@@ -224,3 +224,49 @@ class PaginatedNotificationsResponse(BaseModel):
 
 class UnreadCountResponse(BaseModel):
     count: int
+
+
+class ConversationCreate(BaseModel):
+    member_ids: list[int]
+    name: str | None = None
+
+
+class ConversationResponse(BaseModel):
+    id: int
+    name: str | None = None
+    is_group: bool
+    created_at: datetime
+    members: list[AuthorBrief] = []
+    unread_count: int = 0
+    last_message: "MessageResponse | None" = None
+
+    model_config = {"from_attributes": True}
+
+
+class ConversationListResponse(BaseModel):
+    items: list[ConversationResponse]
+    total: int
+
+
+class MessageResponse(BaseModel):
+    id: int
+    conversation_id: int
+    sender_id: int
+    sender: AuthorBrief
+    content: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MessageListResponse(BaseModel):
+    items: list[MessageResponse]
+    total: int
+
+
+class MessageCreate(BaseModel):
+    content: str
+
+
+class UnreadConversationsCountResponse(BaseModel):
+    count: int

@@ -1606,3 +1606,239 @@ textarea.form-control {
     margin-left: 0;
   }
 }
+
+/* Chat Styles */
+.chat-dropdown {
+  width: 340px;
+}
+
+.chat-unread-badge {
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.chat-last-message {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.chat-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.chat-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.chat-page-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.chat-new-form {
+  margin-bottom: 20px;
+  padding: 20px;
+}
+
+.chat-new-form .form-group {
+  margin-bottom: 12px;
+}
+
+.chat-conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  color: inherit;
+}
+
+.chat-conversation-item:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border);
+}
+
+.chat-conversation-item.unread {
+  border-left: 3px solid var(--primary);
+  background: var(--primary-light);
+}
+
+.chat-conversation-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.chat-conversation-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-conversation-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-dark);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-conversation-preview {
+  font-size: 13px;
+  color: var(--text-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 4px;
+}
+
+.chat-conversation-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.chat-conversation-time {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+/* Chat Detail */
+.chat-detail-page {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 104px);
+}
+
+.chat-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.chat-detail-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chat-messages-container {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  min-height: 0;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-message {
+  display: flex;
+  gap: 10px;
+}
+
+.chat-message.own {
+  flex-direction: row-reverse;
+}
+
+.chat-message-avatar {
+  flex-shrink: 0;
+}
+
+.chat-message-body {
+  max-width: 70%;
+}
+
+.chat-message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chat-message.own .chat-message-header {
+  flex-direction: row-reverse;
+}
+
+.chat-message-sender {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-medium);
+}
+
+.chat-message-time {
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+.chat-message-content {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  background: var(--bg-body);
+  color: var(--text-dark);
+}
+
+.chat-message.own .chat-message-content {
+  background: var(--primary);
+  color: white;
+}
+
+.chat-input-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+}
+
+.chat-input-form .form-control {
+  flex: 1;
+}
