@@ -307,16 +307,26 @@ async def _process_review(
             if reply:
                 reply.is_hidden = True
     elif action == "dismiss":
-        if report.target_type == "post":
-            result = await db.execute(select(Post).where(Post.id == report.target_id))
-            post = result.scalar_one_or_none()
-            if post:
-                post.is_hidden = False
-        elif report.target_type == "reply":
-            result = await db.execute(select(Reply).where(Reply.id == report.target_id))
-            reply = result.scalar_one_or_none()
-            if reply:
-                reply.is_hidden = False
+        remaining_pending_result = await db.execute(
+            select(func.count(Report.id)).where(
+                Report.target_type == report.target_type,
+                Report.target_id == report.target_id,
+                Report.status == "pending",
+                Report.id != report.id,
+            )
+        )
+        remaining_pending = remaining_pending_result.scalar() or 0
+        if remaining_pending == 0:
+            if report.target_type == "post":
+                result = await db.execute(select(Post).where(Post.id == report.target_id))
+                post = result.scalar_one_or_none()
+                if post:
+                    post.is_hidden = False
+            elif report.target_type == "reply":
+                result = await db.execute(select(Reply).where(Reply.id == report.target_id))
+                reply = result.scalar_one_or_none()
+                if reply:
+                    reply.is_hidden = False
 
 
 @router.post("/{report_id}/review", response_model=ReportResponse)

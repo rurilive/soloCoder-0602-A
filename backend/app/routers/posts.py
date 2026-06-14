@@ -253,18 +253,18 @@ async def get_post(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    if post.is_hidden:
-        is_moderator = False
-        if current_user:
-            if current_user.role == "admin":
-                is_moderator = True
-            elif current_user.role == "moderator":
-                mod_result = await db.execute(
-                    select(Moderator).where(Moderator.user_id == current_user.id)
-                )
-                is_moderator = mod_result.scalar_one_or_none() is not None
-        if not is_moderator:
-            raise HTTPException(status_code=404, detail="帖子不存在")
+    is_moderator = False
+    if current_user:
+        if current_user.role == "admin":
+            is_moderator = True
+        elif current_user.role == "moderator":
+            mod_result = await db.execute(
+                select(Moderator).where(Moderator.user_id == current_user.id)
+            )
+            is_moderator = mod_result.scalar_one_or_none() is not None
+
+    if post.is_hidden and not is_moderator:
+        raise HTTPException(status_code=404, detail="帖子不存在")
 
     post.view_count += 1
     await db.commit()
@@ -292,7 +292,7 @@ async def get_post(
 
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted and not reply.is_hidden:
+        if not reply.is_deleted and (is_moderator or not reply.is_hidden):
             reply_responses.append(
                 ReplyResponse(
                     id=reply.id,
@@ -415,9 +415,18 @@ async def update_post(
     )
     post = result.scalar_one()
 
+    is_moderator = False
+    if current_user.role == "admin":
+        is_moderator = True
+    elif current_user.role == "moderator":
+        mod_result = await db.execute(
+            select(Moderator).where(Moderator.user_id == current_user.id)
+        )
+        is_moderator = mod_result.scalar_one_or_none() is not None
+
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted and not reply.is_hidden:
+        if not reply.is_deleted and (is_moderator or not reply.is_hidden):
             reply_responses.append(
                 ReplyResponse(
                     id=reply.id,
@@ -835,6 +844,7 @@ async def list_replies(
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     result = await db.execute(
         select(Post).where(Post.id == post_id, Post.is_deleted == False)
@@ -842,22 +852,32 @@ async def list_replies(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="帖子不存在")
 
+    is_moderator = False
+    if current_user:
+        if current_user.role == "admin":
+            is_moderator = True
+        elif current_user.role == "moderator":
+            mod_result = await db.execute(
+                select(Moderator).where(Moderator.user_id == current_user.id)
+            )
+            is_moderator = mod_result.scalar_one_or_none() is not None
+
+    root_where = [
+        Reply.post_id == post_id,
+        Reply.is_deleted == False,
+        Reply.parent_id.is_(None),
+    ]
+    if not is_moderator:
+        root_where.append(Reply.is_hidden == False)
+
     count_result = await db.execute(
-        select(func.count(Reply.id)).where(
-            Reply.post_id == post_id,
-            Reply.is_deleted == False,
-            Reply.parent_id.is_(None),
-        )
+        select(func.count(Reply.id)).where(*root_where)
     )
     total = count_result.scalar() or 0
 
     paginated_root_stmt = (
         select(Reply)
-        .where(
-            Reply.post_id == post_id,
-            Reply.is_deleted == False,
-            Reply.parent_id.is_(None),
-        )
+        .where(*root_where)
         .order_by(Reply.floor_number.asc())
         .offset(skip)
         .limit(limit)
@@ -867,12 +887,16 @@ async def list_replies(
     paginated_roots = paginated_root_result.scalars().all()
     root_reply_ids = {r.id for r in paginated_roots}
 
+    all_where = [
+        Reply.post_id == post_id,
+        Reply.is_deleted == False,
+    ]
+    if not is_moderator:
+        all_where.append(Reply.is_hidden == False)
+
     all_replies_stmt = (
         select(Reply)
-        .where(
-            Reply.post_id == post_id,
-            Reply.is_deleted == False,
-        )
+        .where(*all_where)
         .order_by(Reply.created_at.asc())
         .options(selectinload(Reply.author))
     )
