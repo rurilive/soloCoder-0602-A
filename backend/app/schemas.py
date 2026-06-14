@@ -70,6 +70,7 @@ class PostCreate(BaseModel):
 class PostUpdate(BaseModel):
     title: str | None = None
     content: str | None = None
+    edit_reason: str | None = None
 
 
 class AuthorBrief(BaseModel):
@@ -304,3 +305,38 @@ class PaginatedMentionsResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class PostRevisionResponse(BaseModel):
+    id: int
+    post_id: int
+    title: str
+    content: str
+    editor_id: int
+    editor: AuthorBrief
+    edit_reason: str | None = None
+    version: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedRevisionsResponse(BaseModel):
+    items: list[PostRevisionResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class DiffOperation(BaseModel):
+    type: str
+    value: str
+
+
+class DiffResponse(BaseModel):
+    old_title: str
+    new_title: str
+    title_diff: list[DiffOperation]
+    content_diff: list[DiffOperation]
+    old_version: int
+    new_version: int

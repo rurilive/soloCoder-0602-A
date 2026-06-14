@@ -172,3 +172,19 @@ class Message(Base):
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
     sender: Mapped["User"] = relationship("User", lazy="selectin")
+
+
+class PostRevision(Base):
+    __tablename__ = "post_revisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    editor_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    edit_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    post: Mapped["Post"] = relationship("Post", lazy="selectin")
+    editor: Mapped["User"] = relationship("User", lazy="selectin")

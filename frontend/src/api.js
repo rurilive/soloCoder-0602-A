@@ -55,4 +55,21 @@ export const markConversationRead = (conversationId) =>
 export const getUserByUsername = (username) =>
   api.get(`/api/users/by-username/${encodeURIComponent(username)}`)
 
+export const getPostRevisions = (postId, skip = 0, limit = 20) =>
+  api.get(`/api/posts/${postId}/revisions`, { params: { skip, limit } })
+
+export const getPostRevision = (postId, revisionId) =>
+  api.get(`/api/posts/${postId}/revisions/${revisionId}`)
+
+export const getPostDiff = (postId, oldVersion, newVersion) =>
+  api.get(`/api/posts/${postId}/diff`, { params: { old_version: oldVersion, new_version: newVersion } })
+
+export const getPostWebSocketUrl = (postId) => {
+  const token = localStorage.getItem('token')
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const base = 'localhost:1111'
+  const url = `${protocol}//${base}/api/ws/posts/${postId}`
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url
+}
+
 export default api

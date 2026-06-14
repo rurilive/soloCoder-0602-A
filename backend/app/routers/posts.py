@@ -1,20 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
-from app.auth import get_current_user, get_optional_current_user
-from app.database import get_db
-from app.models import Favorite, Mention, Moderator, Post, Reply, Section, User
+from app.auth import SECRET_KEY, ALGORITHM, get_current_user, get_optional_current_user
+from app.database import async_session, get_db
+from app.models import Favorite, Mention, Moderator, Post, PostRevision, Reply, Section, User
 from app.schemas import (
     AuthorBrief,
+    DiffOperation,
+    DiffResponse,
     MentionResponse,
     PaginatedMentionsResponse,
     PaginatedRepliesResponse,
     PaginatedResponse,
+    PaginatedRevisionsResponse,
     PostCreate,
     PostListResponse,
     PostResponse,
+    PostRevisionResponse,
     PostSearchItem,
     PostUpdate,
     ReplyCreate,
@@ -22,8 +30,34 @@ from app.schemas import (
     SectionBrief,
 )
 from app.services.notification import create_mentions_and_notifications
+from app.utils.diff import compute_diff
 
 router = APIRouter(prefix="/api", tags=["posts"])
+
+post_watchers: dict[int, list[WebSocket]] = {}
+
+
+async def _broadcast_post_edit(post_id: int, editor: User, edit_reason: str | None, new_title: str, new_content: str) -> None:
+    if post_id not in post_watchers:
+        return
+
+    payload = {
+        "type": "post_edited",
+        "post_id": post_id,
+        "editor_id": editor.id,
+        "editor_username": editor.username,
+        "editor_avatar": editor.avatar,
+        "edit_reason": edit_reason,
+        "new_title": new_title,
+        "new_content": new_content,
+        "edited_at": datetime.utcnow().isoformat(),
+    }
+
+    for ws in list(post_watchers[post_id]):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
 
 
 def _can_moderate(user: User, section_id: int, moderators: list[Moderator]) -> bool:
@@ -288,12 +322,42 @@ async def update_post(
     if post.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="只能编辑自己的帖子")
 
+    old_title = post.title
+    old_content = post.content
+
     if post_data.title is not None:
         post.title = post_data.title
     if post_data.content is not None:
         post.content = post_data.content
 
+    if post_data.title is not None or post_data.content is not None:
+        count_result = await db.execute(
+            select(func.count(PostRevision.id)).where(PostRevision.post_id == post_id)
+        )
+        next_version = (count_result.scalar() or 0) + 1
+
+        revision = PostRevision(
+            post_id=post_id,
+            title=old_title,
+            content=old_content,
+            editor_id=current_user.id,
+            edit_reason=post_data.edit_reason,
+            version=next_version,
+        )
+        db.add(revision)
+
     await db.commit()
+
+    await db.refresh(post)
+
+    if post_data.title is not None or post_data.content is not None:
+        await _broadcast_post_edit(
+            post_id=post_id,
+            editor=current_user,
+            edit_reason=post_data.edit_reason,
+            new_title=post.title,
+            new_content=post.content,
+        )
 
     result = await db.execute(
         select(Post)
@@ -344,6 +408,227 @@ async def update_post(
         updated_at=post.updated_at,
         replies=reply_responses,
     )
+
+
+@router.get("/posts/{post_id}/revisions", response_model=PaginatedRevisionsResponse)
+async def list_post_revisions(
+    post_id: int,
+    skip: int = 0,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    post_result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.is_deleted == False)
+    )
+    if not post_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    count_result = await db.execute(
+        select(func.count(PostRevision.id)).where(PostRevision.post_id == post_id)
+    )
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(PostRevision)
+        .where(PostRevision.post_id == post_id)
+        .order_by(PostRevision.version.desc())
+        .offset(skip)
+        .limit(limit)
+        .options(selectinload(PostRevision.editor))
+    )
+    result = await db.execute(stmt)
+    revisions = result.scalars().all()
+
+    items = []
+    for rev in revisions:
+        items.append(
+            PostRevisionResponse(
+                id=rev.id,
+                post_id=rev.post_id,
+                title=rev.title,
+                content=rev.content,
+                editor_id=rev.editor_id,
+                editor=AuthorBrief(
+                    id=rev.editor.id,
+                    username=rev.editor.username,
+                    avatar=rev.editor.avatar,
+                ),
+                edit_reason=rev.edit_reason,
+                version=rev.version,
+                created_at=rev.created_at,
+            )
+        )
+
+    return PaginatedRevisionsResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/posts/{post_id}/revisions/{revision_id}", response_model=PostRevisionResponse)
+async def get_post_revision(
+    post_id: int,
+    revision_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    rev_result = await db.execute(
+        select(PostRevision)
+        .where(PostRevision.id == revision_id, PostRevision.post_id == post_id)
+        .options(selectinload(PostRevision.editor))
+    )
+    revision = rev_result.scalar_one_or_none()
+    if not revision:
+        raise HTTPException(status_code=404, detail="版本不存在")
+
+    return PostRevisionResponse(
+        id=revision.id,
+        post_id=revision.post_id,
+        title=revision.title,
+        content=revision.content,
+        editor_id=revision.editor_id,
+        editor=AuthorBrief(
+            id=revision.editor.id,
+            username=revision.editor.username,
+            avatar=revision.editor.avatar,
+        ),
+        edit_reason=revision.edit_reason,
+        version=revision.version,
+        created_at=revision.created_at,
+    )
+
+
+@router.get("/posts/{post_id}/diff", response_model=DiffResponse)
+async def get_post_diff(
+    post_id: int,
+    old_version: int,
+    new_version: int,
+    db: AsyncSession = Depends(get_db),
+):
+    post_result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.is_deleted == False)
+    )
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    if old_version >= new_version:
+        raise HTTPException(status_code=400, detail="旧版本号必须小于新版本号")
+
+    count_result = await db.execute(
+        select(func.count(PostRevision.id)).where(PostRevision.post_id == post_id)
+    )
+    total_revisions = count_result.scalar() or 0
+    max_version = total_revisions + 1
+
+    if old_version < 1 or new_version > max_version:
+        raise HTTPException(status_code=400, detail=f"版本号必须在 1 到 {max_version} 之间")
+
+    old_rev = None
+    new_rev = None
+    new_is_current = (new_version == max_version)
+
+    if old_version <= total_revisions:
+        old_result = await db.execute(
+            select(PostRevision).where(
+                PostRevision.post_id == post_id,
+                PostRevision.version == old_version,
+            )
+        )
+        old_rev = old_result.scalar_one_or_none()
+
+    if not new_is_current and new_version <= total_revisions:
+        new_result = await db.execute(
+            select(PostRevision).where(
+                PostRevision.post_id == post_id,
+                PostRevision.version == new_version,
+            )
+        )
+        new_rev = new_result.scalar_one_or_none()
+
+    if old_version == 1 and old_rev is None:
+        old_title = post.title
+        old_content = post.content
+    elif old_rev:
+        old_title = old_rev.title
+        old_content = old_rev.content
+    else:
+        raise HTTPException(status_code=404, detail=f"版本 {old_version} 不存在")
+
+    if new_is_current:
+        new_title = post.title
+        new_content = post.content
+    elif new_rev:
+        new_title = new_rev.title
+        new_content = new_rev.content
+    else:
+        raise HTTPException(status_code=404, detail=f"版本 {new_version} 不存在")
+
+    title_diff_ops = compute_diff(old_title, new_title, word_level=False)
+    content_diff_ops = compute_diff(old_content, new_content, word_level=True)
+
+    title_diff = [DiffOperation(type=op.type, value=op.value) for op in title_diff_ops]
+    content_diff = [DiffOperation(type=op.type, value=op.value) for op in content_diff_ops]
+
+    return DiffResponse(
+        old_title=old_title,
+        new_title=new_title,
+        title_diff=title_diff,
+        content_diff=content_diff,
+        old_version=old_version,
+        new_version=new_version,
+    )
+
+
+@router.websocket("/ws/posts/{post_id}")
+async def websocket_post_watch(websocket: WebSocket, post_id: int):
+    token = websocket.query_params.get("token")
+    user_id = None
+
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id_str = payload.get("sub")
+            if user_id_str:
+                user_id = int(user_id_str)
+        except (JWTError, ValueError):
+            pass
+
+    async with async_session() as db:
+        post_result = await db.execute(
+            select(Post).where(Post.id == post_id, Post.is_deleted == False)
+        )
+        if not post_result.scalar_one_or_none():
+            await websocket.close(code=4004, reason="帖子不存在")
+            return
+
+    await websocket.accept()
+
+    if post_id not in post_watchers:
+        post_watchers[post_id] = []
+    post_watchers[post_id].append(websocket)
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                data = json.loads(raw)
+                msg_type = data.get("type")
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except json.JSONDecodeError:
+                continue
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if post_id in post_watchers:
+            if websocket in post_watchers[post_id]:
+                post_watchers[post_id].remove(websocket)
+            if not post_watchers[post_id]:
+                del post_watchers[post_id]
 
 
 @router.delete("/posts/{post_id}")
