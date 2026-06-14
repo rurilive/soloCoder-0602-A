@@ -59,14 +59,18 @@ async def change_reputation(
     operator_id: int | None = None,
     post_id: int | None = None,
     reply_id: int | None = None,
+    user_obj: User | None = None,
 ) -> None:
     if change == 0:
         return
 
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        return
+    if user_obj is not None:
+        user = user_obj
+    else:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            return
 
     user.reputation += change
 
