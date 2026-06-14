@@ -7,7 +7,8 @@ from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Moderator, Notification, Post, Reply, Report, Section, User
+from app.models import Notification, Post, Reply, Report, Section, User
+from app.routers.posts import _is_moderator
 from app.schemas import (
     AuthorBrief,
     PaginatedReportsResponse,
@@ -19,17 +20,6 @@ from app.schemas import (
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 AUTO_HIDE_THRESHOLD = 3
-
-
-async def _check_moderator(user: User, db: AsyncSession) -> bool:
-    if user.role == "admin":
-        return True
-    if user.role == "moderator":
-        result = await db.execute(
-            select(Moderator).where(Moderator.user_id == user.id)
-        )
-        return result.scalar_one_or_none() is not None
-    return False
 
 
 async def _auto_hide_if_needed(
@@ -233,7 +223,7 @@ async def list_pending_reports(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not await _check_moderator(current_user, db):
+    if not await _is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
     base_where = [Report.status == "pending"]
@@ -316,7 +306,15 @@ async def _process_review(
             )
         )
         remaining_pending = remaining_pending_result.scalar() or 0
-        if remaining_pending == 0:
+        resolved_result = await db.execute(
+            select(func.count(Report.id)).where(
+                Report.target_type == report.target_type,
+                Report.target_id == report.target_id,
+                Report.status == "resolved",
+            )
+        )
+        resolved_count = resolved_result.scalar() or 0
+        if remaining_pending == 0 and resolved_count == 0:
             if report.target_type == "post":
                 result = await db.execute(select(Post).where(Post.id == report.target_id))
                 post = result.scalar_one_or_none()
@@ -337,7 +335,7 @@ async def review_report(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not await _check_moderator(current_user, db):
+    if not await _is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
     if action not in ("resolve", "dismiss"):
@@ -376,7 +374,7 @@ async def batch_review_reports(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not await _check_moderator(current_user, db):
+    if not await _is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
     if batch_data.action not in ("resolve", "dismiss"):
