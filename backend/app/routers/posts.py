@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
@@ -214,6 +215,7 @@ async def create_post(
     )
     db.add(post)
     await db.flush()
+    await db.refresh(post)
 
     revision = PostRevision(
         post_id=post.id,
@@ -225,7 +227,6 @@ async def create_post(
     )
     db.add(revision)
     await db.commit()
-    await db.refresh(post)
 
     await create_mentions_and_notifications(db, post, current_user, post_data.content)
 
@@ -333,11 +334,6 @@ async def update_post(
     if post.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="只能编辑自己的帖子")
 
-    if post_data.title is not None:
-        post.title = post_data.title
-    if post_data.content is not None:
-        post.content = post_data.content
-
     if post_data.title is not None or post_data.content is not None:
         max_version_result = await db.execute(
             select(func.max(PostRevision.version)).where(PostRevision.post_id == post_id)
@@ -345,17 +341,41 @@ async def update_post(
         current_max_version = max_version_result.scalar() or 0
         next_version = current_max_version + 1
 
+        new_title = post_data.title if post_data.title is not None else post.title
+        new_content = post_data.content if post_data.content is not None else post.content
+
         revision = PostRevision(
             post_id=post_id,
-            title=post.title,
-            content=post.content,
+            title=new_title,
+            content=new_content,
             editor_id=current_user.id,
             edit_reason=post_data.edit_reason,
             version=next_version,
         )
         db.add(revision)
 
-    await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="版本冲突：该帖子正被其他人同时编辑，请刷新后重试",
+            )
+
+        if post_data.title is not None:
+            post.title = post_data.title
+        if post_data.content is not None:
+            post.content = post_data.content
+
+        await db.commit()
+    else:
+        if post_data.title is not None:
+            post.title = post_data.title
+        if post_data.content is not None:
+            post.content = post_data.content
+        if post_data.title is not None or post_data.content is not None:
+            await db.commit()
 
     await db.refresh(post)
 
