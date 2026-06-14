@@ -86,10 +86,16 @@ class ReplyResponse(BaseModel):
     post_id: int
     author_id: int
     author: AuthorBrief
+    parent_id: int | None = None
+    floor_number: int
     is_deleted: bool
     created_at: datetime
+    children: list["ReplyResponse"] = []
 
     model_config = {"from_attributes": True}
+
+
+ReplyResponse.model_rebuild()
 
 
 class PostResponse(BaseModel):
@@ -128,6 +134,7 @@ class PostListResponse(BaseModel):
 
 class ReplyCreate(BaseModel):
     content: str
+    parent_id: int | None = None
 
 
 class ModeratorCreate(BaseModel):
@@ -270,3 +277,10 @@ class MessageCreate(BaseModel):
 
 class UnreadConversationsCountResponse(BaseModel):
     count: int
+
+
+class PaginatedRepliesResponse(BaseModel):
+    items: list[ReplyResponse]
+    total: int
+    skip: int
+    limit: int

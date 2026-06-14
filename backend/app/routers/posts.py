@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Favorite, Moderator, Post, Reply, Section, User
 from app.schemas import (
     AuthorBrief,
+    PaginatedRepliesResponse,
     PaginatedResponse,
     PostCreate,
     PostListResponse,
@@ -18,7 +19,7 @@ from app.schemas import (
     ReplyResponse,
     SectionBrief,
 )
-from app.services.notification import create_notifications
+from app.services.notification import create_mentions_and_notifications
 
 router = APIRouter(prefix="/api", tags=["posts"])
 
@@ -31,6 +32,75 @@ def _can_moderate(user: User, section_id: int, moderators: list[Moderator]) -> b
             if mod.user_id == user.id and mod.section_id == section_id:
                 return True
     return False
+
+
+async def _get_next_floor_number(db: AsyncSession, post_id: int) -> int:
+    result = await db.execute(
+        select(func.max(Reply.floor_number)).where(
+            Reply.post_id == post_id,
+            Reply.is_deleted == False,
+        )
+    )
+    max_floor = result.scalar() or 0
+    return max_floor + 1
+
+
+def _build_flat_reply_response(reply: Reply) -> ReplyResponse:
+    return ReplyResponse(
+        id=reply.id,
+        content=reply.content,
+        post_id=reply.post_id,
+        author_id=reply.author_id,
+        author=AuthorBrief(
+            id=reply.author.id,
+            username=reply.author.username,
+            avatar=reply.author.avatar,
+        ),
+        parent_id=reply.parent_id,
+        floor_number=reply.floor_number,
+        is_deleted=reply.is_deleted,
+        created_at=reply.created_at,
+    )
+
+
+def _build_reply_tree(replies: list[Reply]) -> list[ReplyResponse]:
+    reply_map: dict[int, ReplyResponse] = {}
+    root_replies: list[ReplyResponse] = []
+
+    for reply in replies:
+        if reply.is_deleted:
+            continue
+        reply_map[reply.id] = ReplyResponse(
+            id=reply.id,
+            content=reply.content,
+            post_id=reply.post_id,
+            author_id=reply.author_id,
+            author=AuthorBrief(
+                id=reply.author.id,
+                username=reply.author.username,
+                avatar=reply.author.avatar,
+            ),
+            parent_id=reply.parent_id,
+            floor_number=reply.floor_number,
+            is_deleted=reply.is_deleted,
+            created_at=reply.created_at,
+            children=[],
+        )
+
+    for reply in replies:
+        if reply.is_deleted:
+            continue
+        reply_resp = reply_map[reply.id]
+        if reply.parent_id is None:
+            root_replies.append(reply_resp)
+        elif reply.parent_id in reply_map:
+            reply_map[reply.parent_id].children.append(reply_resp)
+
+    for reply_resp in reply_map.values():
+        reply_resp.children.sort(key=lambda r: r.created_at)
+
+    root_replies.sort(key=lambda r: r.floor_number)
+    return root_replies
 
 
 @router.get("/sections/{section_id}/posts", response_model=list[PostListResponse])
@@ -108,6 +178,9 @@ async def create_post(
     )
     db.add(post)
     await db.commit()
+    await db.refresh(post)
+
+    await create_mentions_and_notifications(db, post, current_user, post_data.content)
 
     result = await db.execute(
         select(Post).where(Post.id == post.id).options(selectinload(Post.author), selectinload(Post.replies))
@@ -168,6 +241,8 @@ async def get_post(
                         username=reply.author.username,
                         avatar=reply.author.avatar,
                     ),
+                    parent_id=reply.parent_id,
+                    floor_number=reply.floor_number,
                     is_deleted=reply.is_deleted,
                     created_at=reply.created_at,
                 )
@@ -242,6 +317,8 @@ async def update_post(
                         username=reply.author.username,
                         avatar=reply.author.avatar,
                     ),
+                    parent_id=reply.parent_id,
+                    floor_number=reply.floor_number,
                     is_deleted=reply.is_deleted,
                     created_at=reply.created_at,
                 )
@@ -347,37 +424,45 @@ async def create_reply(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
+    parent_reply = None
+    if reply_data.parent_id is not None:
+        parent_result = await db.execute(
+            select(Reply).where(
+                Reply.id == reply_data.parent_id,
+                Reply.post_id == post_id,
+                Reply.is_deleted == False,
+            )
+        )
+        parent_reply = parent_result.scalar_one_or_none()
+        if not parent_reply:
+            raise HTTPException(status_code=404, detail="父回复不存在")
+
+    floor_number = await _get_next_floor_number(db, post_id)
+
     reply = Reply(
         content=reply_data.content,
         post_id=post_id,
         author_id=current_user.id,
+        parent_id=reply_data.parent_id,
+        floor_number=floor_number,
     )
     db.add(reply)
     await db.commit()
     await db.refresh(reply)
 
-    await create_notifications(db, post, reply, current_user, reply_data.content)
+    await create_mentions_and_notifications(db, post, current_user, reply_data.content, reply)
 
     result = await db.execute(
-        select(Reply).where(Reply.id == reply.id).options(selectinload(Reply.author))
+        select(Reply).where(Reply.id == reply.id).options(
+            selectinload(Reply.author),
+            selectinload(Reply.parent).selectinload(Reply.author),
+        )
     )
     reply = result.scalar_one()
-    return ReplyResponse(
-        id=reply.id,
-        content=reply.content,
-        post_id=reply.post_id,
-        author_id=reply.author_id,
-        author=AuthorBrief(
-            id=reply.author.id,
-            username=reply.author.username,
-            avatar=reply.author.avatar,
-        ),
-        is_deleted=reply.is_deleted,
-        created_at=reply.created_at,
-    )
+    return _build_flat_reply_response(reply)
 
 
-@router.get("/posts/{post_id}/replies", response_model=list[ReplyResponse])
+@router.get("/posts/{post_id}/replies", response_model=PaginatedRepliesResponse)
 async def list_replies(
     post_id: int,
     skip: int = 0,
@@ -385,31 +470,41 @@ async def list_replies(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.is_deleted == False)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    count_result = await db.execute(
+        select(func.count(Reply.id)).where(
+            Reply.post_id == post_id,
+            Reply.is_deleted == False,
+            Reply.parent_id.is_(None),
+        )
+    )
+    total = count_result.scalar() or 0
+
+    all_stmt = (
         select(Reply)
-        .where(Reply.post_id == post_id, Reply.is_deleted == False)
+        .where(
+            Reply.post_id == post_id,
+            Reply.is_deleted == False,
+        )
         .order_by(Reply.created_at.asc())
-        .offset(skip)
-        .limit(limit)
         .options(selectinload(Reply.author))
     )
-    replies = result.scalars().all()
+    all_result = await db.execute(all_stmt)
+    all_replies = all_result.scalars().all()
 
-    return [
-        ReplyResponse(
-            id=reply.id,
-            content=reply.content,
-            post_id=reply.post_id,
-            author_id=reply.author_id,
-            author=AuthorBrief(
-                id=reply.author.id,
-                username=reply.author.username,
-                avatar=reply.author.avatar,
-            ),
-            is_deleted=reply.is_deleted,
-            created_at=reply.created_at,
-        )
-        for reply in replies
-    ]
+    tree_replies = _build_reply_tree(all_replies)
+    paginated_items = tree_replies[skip : skip + limit]
+
+    return PaginatedRepliesResponse(
+        items=paginated_items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/posts/search", response_model=PaginatedResponse)

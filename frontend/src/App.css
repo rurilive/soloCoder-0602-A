@@ -535,6 +535,76 @@ a:hover {
   padding-left: 40px;
 }
 
+.reply-floor {
+  font-size: 12px;
+  color: var(--primary);
+  font-weight: 600;
+  background: var(--primary-light);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.reply-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.reply-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-light);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s;
+}
+
+.reply-action-btn:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.reply-children {
+  margin-left: 32px;
+  margin-top: 8px;
+  border-left: 2px solid var(--border-light);
+  padding-left: 12px;
+}
+
+.reply-children .reply-item {
+  margin-bottom: 6px;
+  padding: 10px 12px;
+}
+
+.reply-children .reply-content {
+  padding-left: 32px;
+}
+
+.replying-to {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-bottom: 4px;
+}
+
+.replying-to .at-user {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.cancel-reply-btn {
+  background: none;
+  border: none;
+  color: var(--text-light);
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.cancel-reply-btn:hover {
+  color: var(--danger);
+}
+
 .reply-form {
   margin-top: 20px;
   background: var(--bg-white);

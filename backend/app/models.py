@@ -61,11 +61,15 @@ class Reply(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False)
     author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("replies.id"), nullable=True)
+    floor_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     post: Mapped["Post"] = relationship("Post", back_populates="replies")
     author: Mapped["User"] = relationship("User", back_populates="replies")
+    parent: Mapped["Reply | None"] = relationship("Reply", remote_side=[id], back_populates="children", lazy="selectin")
+    children: Mapped[list["Reply"]] = relationship("Reply", back_populates="parent", lazy="selectin")
 
 
 class Moderator(Base):
@@ -92,6 +96,22 @@ class Favorite(Base):
 
     user: Mapped["User"] = relationship("User", lazy="selectin")
     post: Mapped["Post"] = relationship("Post", lazy="selectin")
+
+
+class Mention(Base):
+    __tablename__ = "mentions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False)
+    reply_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("replies.id"), nullable=True)
+    mentioned_by_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    mentioned_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    post: Mapped["Post"] = relationship("Post", lazy="selectin")
+    reply: Mapped["Reply | None"] = relationship("Reply", lazy="selectin")
+    mentioned_by: Mapped["User"] = relationship("User", foreign_keys=[mentioned_by_id], lazy="selectin")
+    mentioned_user: Mapped["User"] = relationship("User", foreign_keys=[mentioned_user_id], lazy="selectin")
 
 
 class Notification(Base):

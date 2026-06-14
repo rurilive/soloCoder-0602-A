@@ -7,6 +7,56 @@ import MarkdownEditor from '../components/MarkdownEditor'
 
 const PAGE_SIZE = 20
 
+function ReplyItem({ reply, onReply, depth = 0 }) {
+  const { user, isAuthenticated } = useAuth()
+  const canReply = isAuthenticated && user && !user.is_muted && !reply.is_deleted
+
+  const handleReply = (e) => {
+    e.stopPropagation()
+    if (onReply) {
+      onReply(reply)
+    }
+  }
+
+  return (
+    <div className={`reply-item ${reply.is_deleted ? 'deleted' : ''}`}>
+      <div className="reply-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span className="reply-floor">#{reply.floor_number}楼</span>
+          <span className="reply-author">
+            <span className="avatar avatar-sm">
+              {reply.author?.avatar ? <img src={reply.author.avatar} alt="" /> : reply.author?.username?.[0] || '?'}
+            </span>
+            {reply.author?.username || '未知'}
+          </span>
+        </div>
+        <div className="reply-actions">
+          <span className="reply-date">{new Date(reply.created_at).toLocaleString()}</span>
+          {canReply && (
+            <button className="reply-action-btn" onClick={handleReply}>
+              回复
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="reply-content">
+        {reply.is_deleted ? (
+          <em style={{ color: 'var(--text-light)' }}>该回复已删除</em>
+        ) : (
+          <MarkdownRenderer content={reply.content} />
+        )}
+      </div>
+      {reply.children && reply.children.length > 0 && (
+        <div className="reply-children">
+          {reply.children.map((child) => (
+            <ReplyItem key={child.id} reply={child} onReply={onReply} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PostDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -14,7 +64,9 @@ export default function PostDetail() {
   const [post, setPost] = useState(null)
   const [replies, setReplies] = useState([])
   const [replyContent, setReplyContent] = useState('')
+  const [replyTo, setReplyTo] = useState(null)
   const [skip, setSkip] = useState(0)
+  const [total, setTotal] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -30,8 +82,9 @@ export default function PostDetail() {
   useEffect(() => {
     api.get(`/api/posts/${id}/replies`, { params: { skip, limit: PAGE_SIZE } })
       .then((res) => {
-        setReplies(res.data)
-        setHasMore(res.data.length === PAGE_SIZE)
+        setReplies(res.data.items)
+        setTotal(res.data.total)
+        setHasMore(skip + PAGE_SIZE < res.data.total)
       })
       .catch(() => setReplies([]))
   }, [id, skip])
@@ -41,6 +94,20 @@ export default function PostDetail() {
   const canDelete = isAuthor || isAdmin || isModerator
   const canPin = isAdmin || isModerator
   const canFavorite = isAuthenticated && post && !post.is_deleted
+
+  const handleReplyClick = (reply) => {
+    setReplyTo(reply)
+    setReplyContent(`@${reply.author.username} `)
+    const editor = document.querySelector('.reply-form textarea')
+    if (editor) {
+      editor.focus()
+    }
+  }
+
+  const handleCancelReply = () => {
+    setReplyTo(null)
+    setReplyContent('')
+  }
 
   const handleFavorite = async () => {
     try {
@@ -82,14 +149,19 @@ export default function PostDetail() {
     if (!replyContent.trim()) return
     setSubmitting(true)
     try {
-      await api.post(`/api/posts/${id}/replies`, { content: replyContent })
+      await api.post(`/api/posts/${id}/replies`, {
+        content: replyContent,
+        parent_id: replyTo?.id || null,
+      })
       setReplyContent('')
+      setReplyTo(null)
       const res = await api.get(`/api/posts/${id}`)
       setPost(res.data)
       setSkip(0)
       const repliesRes = await api.get(`/api/posts/${id}/replies`, { params: { skip: 0, limit: PAGE_SIZE } })
-      setReplies(repliesRes.data)
-      setHasMore(repliesRes.data.length === PAGE_SIZE)
+      setReplies(repliesRes.data.items)
+      setTotal(repliesRes.data.total)
+      setHasMore(PAGE_SIZE < repliesRes.data.total)
     } catch (err) {
       alert('回复失败: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -147,35 +219,20 @@ export default function PostDetail() {
       </div>
 
       <div className="replies-section">
-        <div className="replies-title">回复 ({post.replies?.length ?? replies.length})</div>
+        <div className="replies-title">回复 ({total})</div>
 
         {replies.length === 0 ? (
           <div className="empty-state"><p>暂无回复</p></div>
         ) : (
           replies.map((reply) => (
-            <div key={reply.id} className={`reply-item ${reply.is_deleted ? 'deleted' : ''}`}>
-              <div className="reply-header">
-                <span className="reply-author">
-                  <span className="avatar avatar-sm">
-                    {reply.author?.avatar ? <img src={reply.author.avatar} alt="" /> : reply.author?.username?.[0] || '?'}
-                  </span>
-                  {reply.author?.username || '未知'}
-                </span>
-                <span className="reply-date">{new Date(reply.created_at).toLocaleString()}</span>
-              </div>
-              <div className="reply-content">
-                {reply.is_deleted ? <em style={{ color: 'var(--text-light)' }}>该回复已删除</em> : (
-                  <MarkdownRenderer content={reply.content} />
-                )}
-              </div>
-            </div>
+            <ReplyItem key={reply.id} reply={reply} onReply={handleReplyClick} />
           ))
         )}
 
-        {replies.length > 0 && (
+        {total > 0 && (
           <div className="pagination">
             <button disabled={skip === 0} onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}>上一页</button>
-            <span className="page-info">第 {Math.floor(skip / PAGE_SIZE) + 1} 页</span>
+            <span className="page-info">第 {Math.floor(skip / PAGE_SIZE) + 1} 页 / 共 {Math.ceil(total / PAGE_SIZE)} 页</span>
             <button disabled={!hasMore} onClick={() => setSkip(skip + PAGE_SIZE)}>下一页</button>
           </div>
         )}
@@ -183,6 +240,12 @@ export default function PostDetail() {
 
       {canReply && (
         <div className="reply-form">
+          {replyTo && (
+            <div className="replying-to">
+              回复 <span className="at-user">@{replyTo.author.username}</span>
+              <button className="cancel-reply-btn" onClick={handleCancelReply}>取消</button>
+            </div>
+          )}
           <form onSubmit={handleReply}>
             <MarkdownEditor value={replyContent} onChange={setReplyContent} />
             <button className="btn btn-primary" type="submit" disabled={submitting} style={{ marginTop: 12 }}>
