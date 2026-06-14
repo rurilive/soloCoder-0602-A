@@ -93,6 +93,7 @@ def _build_flat_reply_response(reply: Reply) -> ReplyResponse:
             id=reply.author.id,
             username=reply.author.username,
             avatar=reply.author.avatar,
+            reputation=reply.author.reputation,
         ),
         parent_id=reply.parent_id,
         floor_number=reply.floor_number,
@@ -118,6 +119,7 @@ def _build_reply_tree(replies: list[Reply]) -> list[ReplyResponse]:
                 id=reply.author.id,
                 username=reply.author.username,
                 avatar=reply.author.avatar,
+                reputation=reply.author.reputation,
             ),
             parent_id=reply.parent_id,
             floor_number=reply.floor_number,
@@ -184,6 +186,7 @@ async def list_posts(
                     id=post.author.id,
                     username=post.author.username,
                     avatar=post.author.avatar,
+                    reputation=post.author.reputation,
                 ),
                 is_pinned=post.is_pinned,
                 is_deleted=post.is_deleted,
@@ -205,6 +208,8 @@ async def create_post(
 ):
     if current_user.is_muted:
         raise HTTPException(status_code=403, detail="您已被禁言，无法发帖")
+    if current_user.role == "restricted":
+        raise HTTPException(status_code=403, detail="您是受限用户，无法发帖，请提升声望后再试")
 
     result = await db.execute(select(Section).where(Section.id == section_id))
     if not result.scalar_one_or_none():
@@ -305,6 +310,7 @@ async def get_post(
                         id=reply.author.id,
                         username=reply.author.username,
                         avatar=reply.author.avatar,
+                        reputation=reply.author.reputation,
                     ),
                     parent_id=reply.parent_id,
                     floor_number=reply.floor_number,
@@ -324,6 +330,7 @@ async def get_post(
             id=post.author.id,
             username=post.author.username,
             avatar=post.author.avatar,
+            reputation=post.author.reputation,
         ),
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
@@ -432,6 +439,7 @@ async def update_post(
                         id=reply.author.id,
                         username=reply.author.username,
                         avatar=reply.author.avatar,
+                        reputation=reply.author.reputation,
                     ),
                     parent_id=reply.parent_id,
                     floor_number=reply.floor_number,
@@ -451,6 +459,7 @@ async def update_post(
             id=post.author.id,
             username=post.author.username,
             avatar=post.author.avatar,
+            reputation=post.author.reputation,
         ),
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
@@ -504,6 +513,7 @@ async def list_post_revisions(
                     id=rev.editor.id,
                     username=rev.editor.username,
                     avatar=rev.editor.avatar,
+                    reputation=rev.editor.reputation,
                 ),
                 edit_reason=rev.edit_reason,
                 version=rev.version,
@@ -544,6 +554,7 @@ async def get_post_revision(
             id=revision.editor.id,
             username=revision.editor.username,
             avatar=revision.editor.avatar,
+            reputation=revision.editor.reputation,
         ),
         edit_reason=revision.edit_reason,
         version=revision.version,
@@ -743,6 +754,8 @@ async def create_reply(
 ):
     if current_user.is_muted:
         raise HTTPException(status_code=403, detail="您已被禁言，无法回复")
+    if current_user.role == "restricted":
+        raise HTTPException(status_code=403, detail="您是受限用户，无法回复，请提升声望后再试")
 
     result = await db.execute(
         select(Post).where(Post.id == post_id, Post.is_deleted == False).options(selectinload(Post.author))
@@ -829,6 +842,7 @@ def _build_reply_subtree(
                 id=reply.author.id,
                 username=reply.author.username,
                 avatar=reply.author.avatar,
+                reputation=reply.author.reputation,
             ),
             parent_id=reply.parent_id,
             floor_number=reply.floor_number,
@@ -1007,6 +1021,7 @@ async def search_posts(
                     id=post.author.id if post.author else post.author_id,
                     username=post.author.username if post.author else "未知用户",
                     avatar=post.author.avatar if post.author else None,
+                    reputation=post.author.reputation if post.author else 0,
                 ),
                 is_pinned=post.is_pinned,
                 view_count=post.view_count,
@@ -1125,11 +1140,13 @@ async def list_post_mentions(
                     id=m.mentioned_by.id,
                     username=m.mentioned_by.username,
                     avatar=m.mentioned_by.avatar,
+                    reputation=m.mentioned_by.reputation,
                 ),
                 mentioned_user=AuthorBrief(
                     id=m.mentioned_user.id,
                     username=m.mentioned_user.username,
                     avatar=m.mentioned_user.avatar,
+                    reputation=m.mentioned_user.reputation,
                 ),
                 created_at=m.created_at,
             )
@@ -1188,11 +1205,13 @@ async def list_all_mentions(
                     id=m.mentioned_by.id,
                     username=m.mentioned_by.username,
                     avatar=m.mentioned_by.avatar,
+                    reputation=m.mentioned_by.reputation,
                 ),
                 mentioned_user=AuthorBrief(
                     id=m.mentioned_user.id,
                     username=m.mentioned_user.username,
                     avatar=m.mentioned_user.avatar,
+                    reputation=m.mentioned_user.reputation,
                 ),
                 created_at=m.created_at,
             )

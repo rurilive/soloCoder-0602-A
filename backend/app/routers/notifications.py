@@ -56,6 +56,7 @@ async def list_notifications(
                 id=n.actor.id,
                 username=n.actor.username,
                 avatar=n.actor.avatar,
+                reputation=n.actor.reputation,
             )
         items.append(
             NotificationResponse(

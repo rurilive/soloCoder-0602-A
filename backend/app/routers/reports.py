@@ -54,6 +54,7 @@ def _build_report_response(report: Report) -> ReportResponse:
         id=report.reporter.id,
         username=report.reporter.username,
         avatar=report.reporter.avatar,
+        reputation=report.reporter.reputation,
     )
     reviewer = None
     if report.reviewer:
@@ -61,6 +62,7 @@ def _build_report_response(report: Report) -> ReportResponse:
             id=report.reviewer.id,
             username=report.reviewer.username,
             avatar=report.reviewer.avatar,
+            reputation=report.reviewer.reputation,
         )
     return ReportResponse(
         id=report.id,
@@ -94,6 +96,7 @@ async def _enrich_report(
                 id=post.author.id,
                 username=post.author.username,
                 avatar=post.author.avatar,
+                reputation=post.author.reputation,
             )
             resp.target_section_id = post.section_id
             resp.target_section_name = post.section.name if post.section else None
@@ -111,6 +114,7 @@ async def _enrich_report(
                 id=reply.author.id,
                 username=reply.author.username,
                 avatar=reply.author.avatar,
+                reputation=reply.author.reputation,
             )
             if reply.post:
                 resp.target_section_id = reply.post.section_id

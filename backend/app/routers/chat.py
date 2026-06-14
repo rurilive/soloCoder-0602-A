@@ -67,6 +67,7 @@ async def _get_last_message(
             id=msg.sender.id,
             username=msg.sender.username,
             avatar=msg.sender.avatar,
+            reputation=msg.sender.reputation,
         ),
         content=msg.content,
         created_at=msg.created_at,
@@ -77,7 +78,7 @@ async def _build_conversation_response(
     db: AsyncSession, conv: Conversation, user_id: int
 ) -> ConversationResponse:
     members = [
-        AuthorBrief(id=m.user.id, username=m.user.username, avatar=m.user.avatar)
+        AuthorBrief(id=m.user.id, username=m.user.username, avatar=m.user.avatar, reputation=m.user.reputation)
         for m in conv.members
     ]
     unread = await _get_conversation_unread_count(db, conv.id, user_id)
@@ -238,6 +239,7 @@ async def get_messages(
                     id=msg.sender.id,
                     username=msg.sender.username,
                     avatar=msg.sender.avatar,
+                    reputation=msg.sender.reputation,
                 ),
                 content=msg.content,
                 created_at=msg.created_at,

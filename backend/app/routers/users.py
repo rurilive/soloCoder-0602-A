@@ -108,6 +108,7 @@ async def get_my_favorites(
                     id=post.author.id,
                     username=post.author.username,
                     avatar=post.author.avatar,
+                    reputation=post.author.reputation,
                 ),
                 section=SectionBrief(
                     id=section.id if section else post.section_id,
@@ -138,6 +139,7 @@ async def get_user_by_username(
         id=user.id,
         username=user.username,
         avatar=user.avatar,
+        reputation=user.reputation,
     )
 
 
@@ -198,6 +200,7 @@ async def get_my_reputation_logs(
                 id=log.operator.id,
                 username=log.operator.username,
                 avatar=log.operator.avatar,
+                reputation=log.operator.reputation,
             )
         items.append(
             ReputationLogResponse(
@@ -263,6 +266,7 @@ async def get_user_reputation_logs(
                 id=log.operator.id,
                 username=log.operator.username,
                 avatar=log.operator.avatar,
+                reputation=log.operator.reputation,
             )
         items.append(
             ReputationLogResponse(

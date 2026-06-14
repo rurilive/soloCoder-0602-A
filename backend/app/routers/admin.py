@@ -50,7 +50,7 @@ async def create_moderator(
         id=mod.id,
         user_id=mod.user_id,
         section_id=mod.section_id,
-        user=AuthorBrief(id=user.id, username=user.username, avatar=user.avatar),
+        user=AuthorBrief(id=user.id, username=user.username, avatar=user.avatar, reputation=user.reputation),
     )
 
 
@@ -91,6 +91,10 @@ async def mute_user(
             reason_type="muted",
             operator_id=admin.id,
         )
+
+    if not mute_data.is_muted and user.is_muted:
+        if user.role == "restricted":
+            user.role = "user"
 
     user.is_muted = mute_data.is_muted
     await db.commit()
