@@ -30,6 +30,7 @@ class UserResponse(BaseModel):
     avatar: str | None = None
     role: str
     is_muted: bool
+    reputation: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -77,6 +78,7 @@ class AuthorBrief(BaseModel):
     id: int
     username: str
     avatar: str | None = None
+    reputation: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -382,3 +384,29 @@ class ReportBatchAction(BaseModel):
     report_ids: list[int]
     action: str
     review_note: str | None = None
+
+
+class ReputationLogResponse(BaseModel):
+    id: int
+    user_id: int
+    change: int
+    reason: str
+    reason_type: str
+    operator: AuthorBrief | None = None
+    post_id: int | None = None
+    reply_id: int | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedReputationLogsResponse(BaseModel):
+    items: list[ReputationLogResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class ReputationAdjust(BaseModel):
+    change: int
+    reason: str

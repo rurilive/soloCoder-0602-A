@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager
+from sqlalchemy.orm import contains_eager, selectinload
 
 from app.auth import get_admin_user, get_current_user
 from app.database import get_db
-from app.models import Favorite, Post, Reply, Section, User
+from app.models import Favorite, Post, Reply, ReputationLog, Section, User
 from app.schemas import (
     AuthorBrief,
     FavoritePostItem,
     PaginatedFavoritesResponse,
+    PaginatedReputationLogsResponse,
+    ReputationLogResponse,
     SectionBrief,
     UserResponse,
     UserUpdate,
@@ -157,3 +159,128 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return user
+
+
+@router.get("/me/reputation-logs", response_model=PaginatedReputationLogsResponse)
+async def get_my_reputation_logs(
+    skip: int = 0,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if skip < 0:
+        raise HTTPException(status_code=400, detail="skip 不能为负数")
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit 必须在 1-100 之间")
+
+    count_stmt = select(func.count(ReputationLog.id)).where(
+        ReputationLog.user_id == current_user.id
+    )
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(ReputationLog)
+        .where(ReputationLog.user_id == current_user.id)
+        .order_by(ReputationLog.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .options(selectinload(ReputationLog.operator))
+    )
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+
+    items = []
+    for log in logs:
+        operator = None
+        if log.operator:
+            operator = AuthorBrief(
+                id=log.operator.id,
+                username=log.operator.username,
+                avatar=log.operator.avatar,
+            )
+        items.append(
+            ReputationLogResponse(
+                id=log.id,
+                user_id=log.user_id,
+                change=log.change,
+                reason=log.reason,
+                reason_type=log.reason_type,
+                operator=operator,
+                post_id=log.post_id,
+                reply_id=log.reply_id,
+                created_at=log.created_at,
+            )
+        )
+
+    return PaginatedReputationLogsResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/{user_id}/reputation-logs", response_model=PaginatedReputationLogsResponse)
+async def get_user_reputation_logs(
+    user_id: int,
+    skip: int = 0,
+    limit: int = 20,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if skip < 0:
+        raise HTTPException(status_code=400, detail="skip 不能为负数")
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit 必须在 1-100 之间")
+
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    if not user_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    count_stmt = select(func.count(ReputationLog.id)).where(
+        ReputationLog.user_id == user_id
+    )
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(ReputationLog)
+        .where(ReputationLog.user_id == user_id)
+        .order_by(ReputationLog.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .options(selectinload(ReputationLog.operator))
+    )
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+
+    items = []
+    for log in logs:
+        operator = None
+        if log.operator:
+            operator = AuthorBrief(
+                id=log.operator.id,
+                username=log.operator.username,
+                avatar=log.operator.avatar,
+            )
+        items.append(
+            ReputationLogResponse(
+                id=log.id,
+                user_id=log.user_id,
+                change=log.change,
+                reason=log.reason,
+                reason_type=log.reason_type,
+                operator=operator,
+                post_id=log.post_id,
+                reply_id=log.reply_id,
+                created_at=log.created_at,
+            )
+        )
+
+    return PaginatedReputationLogsResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )

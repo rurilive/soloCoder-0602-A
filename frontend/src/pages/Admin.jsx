@@ -1,5 +1,26 @@
 import { useState, useEffect } from 'react'
-import api from '../api'
+import api, { adjustUserReputation, getUserReputationLogs } from '../api'
+import { formatTime } from '../utils/notification'
+
+const REASON_TYPE_LABELS = {
+  create_post: '发帖',
+  create_reply: '回复',
+  post_replied: '被回复',
+  post_favorited: '被收藏',
+  report_resolved: '举报通过',
+  muted: '被禁言',
+  manual_adjust: '手动调整',
+}
+
+function getRoleLabel(role) {
+  switch (role) {
+    case 'admin': return '管理员'
+    case 'moderator': return '版主'
+    case 'senior': return '资深用户'
+    case 'restricted': return '受限用户'
+    default: return '普通用户'
+  }
+}
 
 export default function Admin() {
   const [tab, setTab] = useState('sections')
@@ -11,13 +32,22 @@ export default function Admin() {
   const [editSection, setEditSection] = useState(null)
   const [sectionForm, setSectionForm] = useState({ name: '', description: '', sort_order: 0 })
   const [modForm, setModForm] = useState({ user_id: '', section_id: '' })
+  const [showRepModal, setShowRepModal] = useState(false)
+  const [repTargetUser, setRepTargetUser] = useState(null)
+  const [repForm, setRepForm] = useState({ change: 0, reason: '' })
+  const [showRepLogsModal, setShowRepLogsModal] = useState(false)
+  const [repLogsUser, setRepLogsUser] = useState(null)
+  const [repLogs, setRepLogs] = useState([])
+  const [repLogsSkip, setRepLogsSkip] = useState(0)
+  const [repLogsTotal, setRepLogsTotal] = useState(0)
+  const [repLogsLoading, setRepLogsLoading] = useState(false)
 
   useEffect(() => {
     api.get('/api/sections/').then((res) => setSections(res.data)).catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (tab === 'users') {
+    if (tab === 'users' || tab === 'reputation') {
       api.get('/api/users/', { params: { skip: userSkip, limit: 20 } }).then((res) => setUsers(res.data)).catch(() => {})
     }
   }, [tab, userSkip])
@@ -29,6 +59,22 @@ export default function Admin() {
       fetchModerators()
     }
   }, [tab])
+
+  useEffect(() => {
+    if (showRepLogsModal && repLogsUser) {
+      setRepLogsLoading(true)
+      getUserReputationLogs(repLogsUser.id, repLogsSkip, 20)
+        .then((res) => {
+          setRepLogs(res.data.items)
+          setRepLogsTotal(res.data.total)
+        })
+        .catch(() => {
+          setRepLogs([])
+          setRepLogsTotal(0)
+        })
+        .finally(() => setRepLogsLoading(false))
+    }
+  }, [showRepLogsModal, repLogsUser, repLogsSkip])
 
   const fetchModerators = async () => {
     try {
@@ -91,6 +137,33 @@ export default function Admin() {
     }
   }
 
+  const handleOpenRepModal = (user) => {
+    setRepTargetUser(user)
+    setRepForm({ change: 0, reason: '' })
+    setShowRepModal(true)
+  }
+
+  const handleAdjustReputation = async (e) => {
+    e.preventDefault()
+    if (!repTargetUser) return
+    try {
+      await adjustUserReputation(repTargetUser.id, Number(repForm.change), repForm.reason)
+      setShowRepModal(false)
+      setRepTargetUser(null)
+      setRepForm({ change: 0, reason: '' })
+      const res = await api.get('/api/users/', { params: { skip: userSkip, limit: 20 } })
+      setUsers(res.data)
+    } catch (err) {
+      alert('调整声望失败: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleOpenRepLogs = (user) => {
+    setRepLogsUser(user)
+    setRepLogsSkip(0)
+    setShowRepLogsModal(true)
+  }
+
   const handleAddModerator = async (e) => {
     e.preventDefault()
     try {
@@ -125,6 +198,7 @@ export default function Admin() {
       <div className="admin-tabs">
         <button className={`admin-tab ${tab === 'sections' ? 'active' : ''}`} onClick={() => setTab('sections')}>板块管理</button>
         <button className={`admin-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => setTab('users')}>用户管理</button>
+        <button className={`admin-tab ${tab === 'reputation' ? 'active' : ''}`} onClick={() => setTab('reputation')}>声望管理</button>
         <button className={`admin-tab ${tab === 'moderators' ? 'active' : ''}`} onClick={() => setTab('moderators')}>版主管理</button>
       </div>
 
@@ -189,7 +263,7 @@ export default function Admin() {
         </div>
       )}
 
-      {tab === 'users' && (
+      {(tab === 'users' || tab === 'reputation') && (
         <div>
           <table className="admin-table">
             <thead>
@@ -198,6 +272,7 @@ export default function Admin() {
                 <th>用户名</th>
                 <th>邮箱</th>
                 <th>角色</th>
+                <th>声望</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
@@ -208,15 +283,34 @@ export default function Admin() {
                   <td>{u.id}</td>
                   <td>{u.username}</td>
                   <td>{u.email || '-'}</td>
-                  <td>{u.role}</td>
+                  <td>{getRoleLabel(u.role)}</td>
+                  <td>
+                    <span className={u.reputation >= 0 ? 'rep-positive' : 'rep-negative'}>
+                      {u.reputation}
+                    </span>
+                  </td>
                   <td>{u.is_muted ? '🔇 已禁言' : '正常'}</td>
                   <td>
-                    <button
-                      className={`btn btn-sm ${u.is_muted ? 'btn-success' : 'btn-warning'}`}
-                      onClick={() => handleMute(u.id, u.is_muted)}
-                    >
-                      {u.is_muted ? '解禁' : '禁言'}
-                    </button>
+                    <div className="admin-actions">
+                      <button
+                        className={`btn btn-sm ${u.is_muted ? 'btn-success' : 'btn-warning'}`}
+                        onClick={() => handleMute(u.id, u.is_muted)}
+                      >
+                        {u.is_muted ? '解禁' : '禁言'}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => handleOpenRepModal(u)}
+                      >
+                        调整声望
+                      </button>
+                      <button
+                        className="btn btn-sm btn-info"
+                        onClick={() => handleOpenRepLogs(u)}
+                      >
+                        声望记录
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -278,6 +372,92 @@ export default function Admin() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showRepModal && repTargetUser && (
+        <div className="modal-overlay" onClick={() => setShowRepModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>调整用户声望 - {repTargetUser.username}</h3>
+            <div style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-light)' }}>
+              当前声望值: <strong className={repTargetUser.reputation >= 0 ? 'rep-positive' : 'rep-negative'}>{repTargetUser.reputation}</strong>
+            </div>
+            <form onSubmit={handleAdjustReputation}>
+              <div className="form-group">
+                <label>声望变化值（正数增加，负数减少）</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  value={repForm.change}
+                  onChange={(e) => setRepForm({ ...repForm, change: Number(e.target.value) })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>调整原因</label>
+                <textarea
+                  className="form-control"
+                  value={repForm.reason}
+                  onChange={(e) => setRepForm({ ...repForm, reason: e.target.value })}
+                  rows={3}
+                  required
+                  placeholder="请说明调整声望的原因..."
+                />
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-secondary" type="button" onClick={() => setShowRepModal(false)}>取消</button>
+                <button className="btn btn-primary" type="submit" disabled={repForm.change === 0}>
+                  确认调整
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showRepLogsModal && repLogsUser && (
+        <div className="modal-overlay" onClick={() => { setShowRepLogsModal(false); setRepLogsUser(null) }}>
+          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+            <h3>声望记录 - {repLogsUser.username}</h3>
+            <div style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-light)' }}>
+              当前声望值: <strong className={repLogsUser.reputation >= 0 ? 'rep-positive' : 'rep-negative'}>{repLogsUser.reputation}</strong>
+            </div>
+
+            {repLogsLoading ? (
+              <div className="loading">加载中...</div>
+            ) : repLogs.length === 0 ? (
+              <div className="empty-state"><p>暂无声望变动记录</p></div>
+            ) : (
+              <>
+                <div className="reputation-logs" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                  {repLogs.map((log) => (
+                    <div key={log.id} className="reputation-log-item">
+                      <div className={`rep-change ${log.change >= 0 ? 'rep-positive' : 'rep-negative'}`}>
+                        {log.change >= 0 ? '+' : ''}{log.change}
+                      </div>
+                      <div className="rep-log-main">
+                        <div className="rep-log-reason">{log.reason}</div>
+                        <div className="rep-log-meta">
+                          <span className="rep-log-type">{REASON_TYPE_LABELS[log.reason_type] || log.reason_type}</span>
+                          {log.operator && <span>操作人: {log.operator.username}</span>}
+                          <span>{formatTime(log.created_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="pagination" style={{ marginTop: 12 }}>
+                  <button disabled={repLogsSkip === 0} onClick={() => setRepLogsSkip(Math.max(0, repLogsSkip - 20))}>上一页</button>
+                  <span className="page-info">第 {Math.floor(repLogsSkip / 20) + 1} 页 / 共 {repLogsTotal} 条</span>
+                  <button disabled={repLogsSkip + 20 >= repLogsTotal} onClick={() => setRepLogsSkip(repLogsSkip + 20)}>下一页</button>
+                </div>
+              </>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn btn-secondary" type="button" onClick={() => { setShowRepLogsModal(false); setRepLogsUser(null) }}>关闭</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

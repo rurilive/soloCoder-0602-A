@@ -2355,3 +2355,75 @@ textarea.form-control {
   font-size: 12px;
   color: var(--text-light);
 }
+
+.rep-positive {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.rep-negative {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.profile-reputation {
+  font-size: 14px;
+  color: var(--text-medium);
+  margin-top: 2px;
+}
+
+.reputation-logs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reputation-log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.rep-change {
+  font-size: 20px;
+  font-weight: 700;
+  min-width: 60px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.rep-log-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rep-log-reason {
+  font-size: 14px;
+  color: var(--text-dark);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.rep-log-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-light);
+  flex-wrap: wrap;
+}
+
+.rep-log-type {
+  padding: 2px 8px;
+  background: var(--bg-body);
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.modal-lg {
+  max-width: 600px;
+  width: 90%;
+}

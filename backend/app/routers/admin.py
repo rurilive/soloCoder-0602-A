@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_admin_user
 from app.database import get_db
 from app.models import Moderator, Post, User
-from app.schemas import MuteUpdate, ModeratorCreate, ModeratorResponse, UserResponse
+from app.schemas import MuteUpdate, ModeratorCreate, ModeratorResponse, ReputationAdjust, UserResponse
+from app.services.reputation import change_reputation
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -73,7 +74,7 @@ async def delete_moderator(
 async def mute_user(
     user_id: int,
     mute_data: MuteUpdate,
-    _admin: User = Depends(get_admin_user),
+    admin: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
@@ -81,7 +82,45 @@ async def mute_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
+    if mute_data.is_muted and not user.is_muted:
+        await change_reputation(
+            db,
+            user_id=user_id,
+            change=-30,
+            reason="被管理员禁言",
+            reason_type="muted",
+            operator_id=admin.id,
+        )
+
     user.is_muted = mute_data.is_muted
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.put("/users/{user_id}/reputation", response_model=UserResponse)
+async def adjust_reputation(
+    user_id: int,
+    adj_data: ReputationAdjust,
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if adj_data.change == 0:
+        raise HTTPException(status_code=400, detail="声望变化值不能为 0")
+
+    await change_reputation(
+        db,
+        user_id=user_id,
+        change=adj_data.change,
+        reason=adj_data.reason or "管理员手动调整",
+        reason_type="manual_adjust",
+        operator_id=admin.id,
+    )
     await db.commit()
     await db.refresh(user)
     return user

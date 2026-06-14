@@ -16,10 +16,12 @@ class User(Base):
     avatar: Mapped[str | None] = mapped_column(String(200), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
     is_muted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    reputation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     posts: Mapped[list["Post"]] = relationship("Post", back_populates="author", lazy="selectin")
     replies: Mapped[list["Reply"]] = relationship("Reply", back_populates="author", lazy="selectin")
+    reputation_logs: Mapped[list["ReputationLog"]] = relationship("ReputationLog", back_populates="user", lazy="selectin")
 
 
 class Section(Base):
@@ -214,3 +216,22 @@ class Report(Base):
 
     reporter: Mapped["User"] = relationship("User", foreign_keys=[reporter_id], lazy="selectin")
     reviewer: Mapped["User | None"] = relationship("User", foreign_keys=[reviewer_id], lazy="selectin")
+
+
+class ReputationLog(Base):
+    __tablename__ = "reputation_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    change: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    reason_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    operator_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    post_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("posts.id"), nullable=True)
+    reply_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("replies.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], back_populates="reputation_logs", lazy="selectin")
+    operator: Mapped["User | None"] = relationship("User", foreign_keys=[operator_id], lazy="selectin")
+    post: Mapped["Post | None"] = relationship("Post", lazy="selectin")
+    reply: Mapped["Reply | None"] = relationship("Reply", lazy="selectin")

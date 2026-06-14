@@ -31,6 +31,7 @@ from app.schemas import (
     SectionBrief,
 )
 from app.services.notification import create_mentions_and_notifications
+from app.services.reputation import change_reputation
 from app.utils.diff import compute_diff
 
 router = APIRouter(prefix="/api", tags=["posts"])
@@ -228,6 +229,15 @@ async def create_post(
         version=1,
     )
     db.add(revision)
+
+    await change_reputation(
+        db,
+        user_id=current_user.id,
+        change=2,
+        reason=f"发布帖子《{post.title}》",
+        reason_type="create_post",
+        post_id=post.id,
+    )
     await db.commit()
 
     await create_mentions_and_notifications(db, post, current_user, post_data.content)
@@ -764,8 +774,31 @@ async def create_reply(
         floor_number=floor_number,
     )
     db.add(reply)
-    await db.commit()
+    await db.flush()
     await db.refresh(reply)
+
+    await change_reputation(
+        db,
+        user_id=current_user.id,
+        change=1,
+        reason=f"在帖子《{post.title}》中回复",
+        reason_type="create_reply",
+        post_id=post_id,
+        reply_id=reply.id,
+    )
+
+    if post.author_id != current_user.id:
+        await change_reputation(
+            db,
+            user_id=post.author_id,
+            change=3,
+            reason=f"你的帖子《{post.title}》被 {current_user.username} 回复",
+            reason_type="post_replied",
+            post_id=post_id,
+            reply_id=reply.id,
+        )
+
+    await db.commit()
 
     await create_mentions_and_notifications(db, post, current_user, reply_data.content, reply)
 
@@ -1011,6 +1044,17 @@ async def favorite_post(
 
     favorite = Favorite(user_id=current_user.id, post_id=post_id)
     db.add(favorite)
+
+    if post.author_id != current_user.id:
+        await change_reputation(
+            db,
+            user_id=post.author_id,
+            change=5,
+            reason=f"你的帖子《{post.title}》被 {current_user.username} 收藏",
+            reason_type="post_favorited",
+            post_id=post_id,
+        )
+
     await db.commit()
     return {"message": "收藏成功", "favorited": True}
 

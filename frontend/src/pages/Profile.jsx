@@ -1,9 +1,30 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../api'
+import api, { getMyReputationLogs } from '../api'
+import { formatTime } from '../utils/notification'
 
 const PAGE_SIZE = 20
+
+const REASON_TYPE_LABELS = {
+  create_post: '发帖',
+  create_reply: '回复',
+  post_replied: '被回复',
+  post_favorited: '被收藏',
+  report_resolved: '举报通过',
+  muted: '被禁言',
+  manual_adjust: '手动调整',
+}
+
+function getRoleLabel(role) {
+  switch (role) {
+    case 'admin': return '管理员'
+    case 'moderator': return '版主'
+    case 'senior': return '资深用户'
+    case 'restricted': return '受限用户'
+    default: return '普通用户'
+  }
+}
 
 export default function Profile() {
   const { user, fetchUser } = useAuth()
@@ -17,6 +38,10 @@ export default function Profile() {
   const [favSkip, setFavSkip] = useState(0)
   const [favTotal, setFavTotal] = useState(0)
   const [favLoading, setFavLoading] = useState(false)
+  const [repLogs, setRepLogs] = useState([])
+  const [repSkip, setRepSkip] = useState(0)
+  const [repTotal, setRepTotal] = useState(0)
+  const [repLoading, setRepLoading] = useState(false)
 
   useEffect(() => {
     if (activeTab === 'favorites') {
@@ -33,6 +58,22 @@ export default function Profile() {
         .finally(() => setFavLoading(false))
     }
   }, [activeTab, favSkip])
+
+  useEffect(() => {
+    if (activeTab === 'reputation') {
+      setRepLoading(true)
+      getMyReputationLogs(repSkip, PAGE_SIZE)
+        .then((res) => {
+          setRepLogs(res.data.items)
+          setRepTotal(res.data.total)
+        })
+        .catch(() => {
+          setRepLogs([])
+          setRepTotal(0)
+        })
+        .finally(() => setRepLoading(false))
+    }
+  }, [activeTab, repSkip])
 
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0]
@@ -70,6 +111,7 @@ export default function Profile() {
 
   const displayAvatar = avatar || user.avatar
   const hasMoreFavorites = favSkip + PAGE_SIZE < favTotal
+  const hasMoreRepLogs = repSkip + PAGE_SIZE < repTotal
 
   return (
     <div className="profile-page">
@@ -81,7 +123,10 @@ export default function Profile() {
         </div>
         <div className="profile-details">
           <div className="profile-name">{user.username}</div>
-          <div className="profile-role">角色: {user.role}</div>
+          <div className="profile-role">角色: {getRoleLabel(user.role)}</div>
+          <div className="profile-reputation">
+            ⭐ 声望: <span className={user.reputation >= 0 ? 'rep-positive' : 'rep-negative'}>{user.reputation}</span>
+          </div>
           <div className="profile-date">注册于: {new Date(user.created_at).toLocaleDateString()}</div>
         </div>
       </div>
@@ -92,6 +137,12 @@ export default function Profile() {
           onClick={() => setActiveTab('profile')}
         >
           基本资料
+        </button>
+        <button
+          className={`profile-tab ${activeTab === 'reputation' ? 'active' : ''}`}
+          onClick={() => setActiveTab('reputation')}
+        >
+          声望记录
         </button>
         <button
           className={`profile-tab ${activeTab === 'favorites' ? 'active' : ''}`}
@@ -122,6 +173,65 @@ export default function Profile() {
               {saving ? '保存中...' : '保存修改'}
             </button>
           </form>
+        </div>
+      )}
+
+      {activeTab === 'reputation' && (
+        <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 14, color: 'var(--text-light)' }}>当前声望值</div>
+                <div style={{ fontSize: 32, fontWeight: 'bold', marginTop: 4 }}>
+                  <span className={user.reputation >= 0 ? 'rep-positive' : 'rep-negative'}>{user.reputation}</span>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 14, color: 'var(--text-light)' }}>升级进度</div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>
+                  {user.reputation < 100 ? (
+                    <>距离资深用户还需 <strong className="rep-positive">{100 - user.reputation}</strong> 声望</>
+                  ) : (
+                    <strong style={{ color: 'var(--accent)' }}>已达成资深用户 🎖️</strong>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {repLoading ? (
+            <div className="loading">加载中...</div>
+          ) : repLogs.length === 0 ? (
+            <div className="empty-state"><p>暂无声望变动记录</p></div>
+          ) : (
+            <>
+              <div className="reputation-logs">
+                {repLogs.map((log) => (
+                  <div key={log.id} className="reputation-log-item">
+                    <div className={`rep-change ${log.change >= 0 ? 'rep-positive' : 'rep-negative'}`}>
+                      {log.change >= 0 ? '+' : ''}{log.change}
+                    </div>
+                    <div className="rep-log-main">
+                      <div className="rep-log-reason">{log.reason}</div>
+                      <div className="rep-log-meta">
+                        <span className="rep-log-type">{REASON_TYPE_LABELS[log.reason_type] || log.reason_type}</span>
+                        {log.operator && <span>操作人: {log.operator.username}</span>}
+                        <span>{formatTime(log.created_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {repTotal > 0 && (
+                <div className="pagination">
+                  <button disabled={repSkip === 0} onClick={() => setRepSkip(Math.max(0, repSkip - PAGE_SIZE))}>上一页</button>
+                  <span className="page-info">第 {Math.floor(repSkip / PAGE_SIZE) + 1} 页 / 共 {repTotal} 条</span>
+                  <button disabled={!hasMoreRepLogs} onClick={() => setRepSkip(repSkip + PAGE_SIZE)}>下一页</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 

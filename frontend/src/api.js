@@ -84,4 +84,13 @@ export const reviewReport = (reportId, action, reviewNote = null) =>
 export const batchReviewReports = (reportIds, action, reviewNote = null) =>
   api.post('/api/reports/batch', { report_ids: reportIds, action, review_note: reviewNote })
 
+export const getMyReputationLogs = (skip = 0, limit = 20) =>
+  api.get('/api/users/me/reputation-logs', { params: { skip, limit } })
+
+export const getUserReputationLogs = (userId, skip = 0, limit = 20) =>
+  api.get(`/api/users/${userId}/reputation-logs`, { params: { skip, limit } })
+
+export const adjustUserReputation = (userId, change, reason) =>
+  api.put(`/api/admin/users/${userId}/reputation`, { change, reason })
+
 export default api

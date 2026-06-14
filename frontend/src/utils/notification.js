@@ -19,6 +19,12 @@ export function getTypeIcon(type) {
       return '💬'
     case 'mention':
       return '@'
+    case 'report_result':
+      return '🚨'
+    case 'reputation_change':
+      return '⭐'
+    case 'reputation_role':
+      return '🎖️'
     default:
       return '🔔'
   }
@@ -30,6 +36,12 @@ export function getTypeLabel(type) {
       return '回复通知'
     case 'mention':
       return '@提及'
+    case 'report_result':
+      return '举报结果'
+    case 'reputation_change':
+      return '声望变动'
+    case 'reputation_role':
+      return '等级变更'
     default:
       return '系统通知'
   }

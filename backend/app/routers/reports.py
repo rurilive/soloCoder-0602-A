@@ -15,6 +15,7 @@ from app.schemas import (
     ReportCreate,
     ReportResponse,
 )
+from app.services.reputation import change_reputation
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -286,15 +287,36 @@ async def _process_review(
 
     if action == "resolve":
         if report.target_type == "post":
-            result = await db.execute(select(Post).where(Post.id == report.target_id))
+            result = await db.execute(select(Post).where(Post.id == report.target_id).options(selectinload(Post.author)))
             post = result.scalar_one_or_none()
             if post:
                 post.is_hidden = True
+                if post.author_id != reviewer.id:
+                    await change_reputation(
+                        db,
+                        user_id=post.author_id,
+                        change=-15,
+                        reason=f"你发布的帖子《{post.title}》因违规被举报通过",
+                        reason_type="report_resolved",
+                        operator_id=reviewer.id,
+                        post_id=post.id,
+                    )
         elif report.target_type == "reply":
-            result = await db.execute(select(Reply).where(Reply.id == report.target_id))
+            result = await db.execute(select(Reply).where(Reply.id == report.target_id).options(selectinload(Reply.author)))
             reply = result.scalar_one_or_none()
             if reply:
                 reply.is_hidden = True
+                if reply.author_id != reviewer.id:
+                    content_preview = reply.content[:50] + ("..." if len(reply.content) > 50 else "")
+                    await change_reputation(
+                        db,
+                        user_id=reply.author_id,
+                        change=-15,
+                        reason=f"你发布的回复《{content_preview}》因违规被举报通过",
+                        reason_type="report_resolved",
+                        operator_id=reviewer.id,
+                        reply_id=reply.id,
+                    )
     elif action == "dismiss":
         await db.flush()
         remaining_pending_result = await db.execute(
