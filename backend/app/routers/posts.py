@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
-from app.auth import SECRET_KEY, ALGORITHM, get_current_user, get_optional_current_user
+from app.auth import SECRET_KEY, ALGORITHM, get_current_user, get_optional_current_user, is_moderator
 from app.database import async_session, get_db
 from app.models import Favorite, Mention, Moderator, Post, PostRevision, Reply, Section, User
 from app.schemas import (
@@ -68,19 +68,6 @@ def _can_moderate(user: User, section_id: int, moderators: list[Moderator]) -> b
         for mod in moderators:
             if mod.user_id == user.id and mod.section_id == section_id:
                 return True
-    return False
-
-
-async def _is_moderator(db: AsyncSession, user: User | None) -> bool:
-    if not user:
-        return False
-    if user.role == "admin":
-        return True
-    if user.role == "moderator":
-        result = await db.execute(
-            select(Moderator).where(Moderator.user_id == user.id)
-        )
-        return result.scalar_one_or_none() is not None
     return False
 
 
@@ -266,7 +253,7 @@ async def get_post(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    is_moderator = await _is_moderator(db, current_user)
+    is_moderator = await is_moderator(db, current_user)
 
     if post.is_hidden and not is_moderator:
         raise HTTPException(status_code=404, detail="帖子不存在")
@@ -420,7 +407,7 @@ async def update_post(
     )
     post = result.scalar_one()
 
-    is_moderator = await _is_moderator(db, current_user)
+    is_moderator = await is_moderator(db, current_user)
 
     reply_responses = []
     for reply in post.replies:
@@ -850,7 +837,7 @@ async def list_replies(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    is_moderator = await _is_moderator(db, current_user)
+    is_moderator = await is_moderator(db, current_user)
 
     root_where = [
         Reply.post_id == post_id,

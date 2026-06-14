@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import User
+from app.models import Moderator, User
 from app.schemas import TokenData
 
 SECRET_KEY = "forum-secret-key-change-in-production"
@@ -88,3 +88,16 @@ async def get_admin_user(current_user: User = Depends(get_current_user)) -> User
             detail="需要管理员权限",
         )
     return current_user
+
+
+async def is_moderator(db: AsyncSession, user: User | None) -> bool:
+    if not user:
+        return False
+    if user.role == "admin":
+        return True
+    if user.role == "moderator":
+        result = await db.execute(
+            select(Moderator).where(Moderator.user_id == user.id)
+        )
+        return result.scalar_one_or_none() is not None
+    return False

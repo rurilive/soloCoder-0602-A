@@ -5,10 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import get_current_user
+from app.auth import get_current_user, is_moderator
 from app.database import get_db
 from app.models import Notification, Post, Reply, Report, Section, User
-from app.routers.posts import _is_moderator
 from app.schemas import (
     AuthorBrief,
     PaginatedReportsResponse,
@@ -223,7 +222,7 @@ async def list_pending_reports(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not await _is_moderator(db, current_user):
+    if not await is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
     base_where = [Report.status == "pending"]
@@ -335,7 +334,7 @@ async def review_report(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not await _is_moderator(db, current_user):
+    if not await is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
     if action not in ("resolve", "dismiss"):
@@ -374,7 +373,7 @@ async def batch_review_reports(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not await _is_moderator(db, current_user):
+    if not await is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
     if batch_data.action not in ("resolve", "dismiss"):
