@@ -46,6 +46,8 @@ export default function Navbar() {
               <span className="navbar-username">{user?.username}</span>
               <Link to="/profile">个人中心</Link>
               {isAdmin && <Link to="/admin">管理后台</Link>}
+              {isModerator && !isAdmin && <Link to="/review-center">审核中心</Link>}
+              {isAdmin && <Link to="/review-center">审核中心</Link>}
               <button className="btn btn-sm btn-secondary" onClick={handleLogout}>退出</button>
             </>
           ) : (

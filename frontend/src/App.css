@@ -2232,3 +2232,126 @@ textarea.form-control {
 .diff-legend-color.delete {
   background: #f8d7da;
 }
+
+.report-btn {
+  color: var(--warning) !important;
+}
+
+.report-btn:hover {
+  color: var(--danger) !important;
+}
+
+.hidden-badge {
+  background: var(--warning-light);
+  color: var(--warning);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.review-center-page h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+.review-filters {
+  margin-bottom: 20px;
+}
+
+.review-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.review-filter-row label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dark);
+  white-space: nowrap;
+}
+
+.review-total {
+  font-size: 14px;
+  color: var(--text-medium);
+  margin-left: auto;
+}
+
+.review-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--primary-light);
+  border-radius: var(--radius);
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--primary-dark);
+  flex-wrap: wrap;
+}
+
+.review-table-wrapper {
+  overflow-x: auto;
+}
+
+.review-table {
+  min-width: 900px;
+}
+
+.review-row-selected {
+  background: var(--primary-light) !important;
+}
+
+.review-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.review-type-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.review-type-badge.post {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+.review-type-badge.reply {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.review-target-content {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-target-content a {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.review-reason {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-date {
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-light);
+}

@@ -90,6 +90,7 @@ class ReplyResponse(BaseModel):
     parent_id: int | None = None
     floor_number: int
     is_deleted: bool
+    is_hidden: bool = False
     created_at: datetime
     children: list["ReplyResponse"] = []
 
@@ -108,6 +109,7 @@ class PostResponse(BaseModel):
     author: AuthorBrief
     is_pinned: bool
     is_deleted: bool
+    is_hidden: bool = False
     view_count: int
     created_at: datetime
     updated_at: datetime
@@ -340,3 +342,43 @@ class DiffResponse(BaseModel):
     content_diff: list[DiffOperation]
     old_version: int
     new_version: int
+
+
+class ReportCreate(BaseModel):
+    target_type: str
+    target_id: int
+    reason: str
+
+
+class ReportResponse(BaseModel):
+    id: int
+    reporter_id: int
+    reporter: AuthorBrief
+    target_type: str
+    target_id: int
+    reason: str
+    status: str
+    reviewer_id: int | None = None
+    reviewer: AuthorBrief | None = None
+    review_note: str | None = None
+    created_at: datetime
+    reviewed_at: datetime | None = None
+    target_content: str | None = None
+    target_author: AuthorBrief | None = None
+    target_section_id: int | None = None
+    target_section_name: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedReportsResponse(BaseModel):
+    items: list[ReportResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class ReportBatchAction(BaseModel):
+    report_ids: list[int]
+    action: str
+    review_note: str | None = None

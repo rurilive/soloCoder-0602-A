@@ -96,6 +96,7 @@ def _build_flat_reply_response(reply: Reply) -> ReplyResponse:
         parent_id=reply.parent_id,
         floor_number=reply.floor_number,
         is_deleted=reply.is_deleted,
+        is_hidden=reply.is_hidden,
         created_at=reply.created_at,
     )
 
@@ -120,6 +121,7 @@ def _build_reply_tree(replies: list[Reply]) -> list[ReplyResponse]:
             parent_id=reply.parent_id,
             floor_number=reply.floor_number,
             is_deleted=reply.is_deleted,
+            is_hidden=reply.is_hidden,
             created_at=reply.created_at,
             children=[],
         )
@@ -153,7 +155,7 @@ async def list_posts(
 
     stmt = (
         select(Post)
-        .where(Post.section_id == section_id, Post.is_deleted == False)
+        .where(Post.section_id == section_id, Post.is_deleted == False, Post.is_hidden == False)
         .order_by(Post.is_pinned.desc(), Post.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -251,6 +253,19 @@ async def get_post(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
+    if post.is_hidden:
+        is_moderator = False
+        if current_user:
+            if current_user.role == "admin":
+                is_moderator = True
+            elif current_user.role == "moderator":
+                mod_result = await db.execute(
+                    select(Moderator).where(Moderator.user_id == current_user.id)
+                )
+                is_moderator = mod_result.scalar_one_or_none() is not None
+        if not is_moderator:
+            raise HTTPException(status_code=404, detail="帖子不存在")
+
     post.view_count += 1
     await db.commit()
     await db.refresh(post)
@@ -277,7 +292,7 @@ async def get_post(
 
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted:
+        if not reply.is_deleted and not reply.is_hidden:
             reply_responses.append(
                 ReplyResponse(
                     id=reply.id,
@@ -292,6 +307,7 @@ async def get_post(
                     parent_id=reply.parent_id,
                     floor_number=reply.floor_number,
                     is_deleted=reply.is_deleted,
+                    is_hidden=reply.is_hidden,
                     created_at=reply.created_at,
                 )
             )
@@ -309,6 +325,7 @@ async def get_post(
         ),
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
+        is_hidden=post.is_hidden,
         view_count=post.view_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
@@ -400,7 +417,7 @@ async def update_post(
 
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted:
+        if not reply.is_deleted and not reply.is_hidden:
             reply_responses.append(
                 ReplyResponse(
                     id=reply.id,
@@ -415,6 +432,7 @@ async def update_post(
                     parent_id=reply.parent_id,
                     floor_number=reply.floor_number,
                     is_deleted=reply.is_deleted,
+                    is_hidden=reply.is_hidden,
                     created_at=reply.created_at,
                 )
             )
@@ -432,6 +450,7 @@ async def update_post(
         ),
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
+        is_hidden=post.is_hidden,
         view_count=post.view_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
@@ -787,6 +806,7 @@ def _build_reply_subtree(
             parent_id=reply.parent_id,
             floor_number=reply.floor_number,
             is_deleted=reply.is_deleted,
+            is_hidden=reply.is_hidden,
             created_at=reply.created_at,
             children=[],
         )
@@ -891,6 +911,7 @@ async def search_posts(
 
     base_where = [
         Post.is_deleted == False,
+        Post.is_hidden == False,
         (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
     ]
     if section_id is not None:

@@ -45,6 +45,7 @@ class Post(Base):
     author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -64,6 +65,7 @@ class Reply(Base):
     parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("replies.id"), nullable=True)
     floor_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     post: Mapped["Post"] = relationship("Post", back_populates="replies")
@@ -191,3 +193,24 @@ class PostRevision(Base):
 
     post: Mapped["Post"] = relationship("Post", lazy="selectin")
     editor: Mapped["User"] = relationship("User", lazy="selectin")
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    __table_args__ = (
+        UniqueConstraint("reporter_id", "target_type", "target_id", name="uq_report_user_target"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    reporter_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    reviewer_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    reporter: Mapped["User"] = relationship("User", foreign_keys=[reporter_id], lazy="selectin")
+    reviewer: Mapped["User | None"] = relationship("User", foreign_keys=[reviewer_id], lazy="selectin")

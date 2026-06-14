@@ -72,4 +72,16 @@ export const getPostWebSocketUrl = (postId) => {
   return token ? `${url}?token=${encodeURIComponent(token)}` : url
 }
 
+export const createReport = (targetType, targetId, reason) =>
+  api.post('/api/reports', { target_type: targetType, target_id: targetId, reason })
+
+export const getPendingReports = (skip = 0, limit = 20, sectionId = null) =>
+  api.get('/api/reports/pending', { params: { skip, limit, section_id: sectionId } })
+
+export const reviewReport = (reportId, action, reviewNote = null) =>
+  api.post(`/api/reports/${reportId}/review`, null, { params: { action, review_note: reviewNote } })
+
+export const batchReviewReports = (reportIds, action, reviewNote = null) =>
+  api.post('/api/reports/batch', { report_ids: reportIds, action, review_note: reviewNote })
+
 export default api

@@ -14,6 +14,7 @@ import Search from './pages/Search'
 import Notifications from './pages/Notifications'
 import ChatList from './pages/ChatList'
 import ChatConversation from './pages/ChatConversation'
+import ReviewCenter from './pages/ReviewCenter'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -41,6 +42,19 @@ function AdminRoute({ children }) {
   return isAdmin ? children : <Navigate to="/" />
 }
 
+function ModeratorRoute({ children }) {
+  const { isModerator, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="page-loading">
+        <div className="loading-spinner" />
+        <span>加载中...</span>
+      </div>
+    )
+  }
+  return isModerator ? children : <Navigate to="/" />
+}
+
 export default function App() {
   return (
     <>
@@ -59,6 +73,7 @@ export default function App() {
           <Route path="/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
           <Route path="/chat" element={<PrivateRoute><ChatList /></PrivateRoute>} />
           <Route path="/chat/:id" element={<PrivateRoute><ChatConversation /></PrivateRoute>} />
+          <Route path="/review-center" element={<ModeratorRoute><ReviewCenter /></ModeratorRoute>} />
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
         </Routes>
       </main>

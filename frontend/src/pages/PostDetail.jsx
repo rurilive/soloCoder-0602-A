@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import api, { getPostRevisions, getPostDiff, getPostWebSocketUrl } from '../api'
+import api, { getPostRevisions, getPostDiff, getPostWebSocketUrl, createReport } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import MarkdownEditor from '../components/MarkdownEditor'
 
 const PAGE_SIZE = 20
 
-function ReplyItem({ reply, onReply, depth = 0 }) {
+function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
   const { user, isAuthenticated } = useAuth()
   const canReply = isAuthenticated && user && !user.is_muted && !reply.is_deleted
+  const canReport = isAuthenticated && user && !reply.is_deleted && reply.author_id !== user?.id
 
   const handleReply = (e) => {
     e.stopPropagation()
@@ -37,6 +38,11 @@ function ReplyItem({ reply, onReply, depth = 0 }) {
               回复
             </button>
           )}
+          {canReport && (
+            <button className="reply-action-btn report-btn" onClick={() => onReport && onReport('reply', reply.id)}>
+              举报
+            </button>
+          )}
         </div>
       </div>
       <div className="reply-content">
@@ -49,7 +55,7 @@ function ReplyItem({ reply, onReply, depth = 0 }) {
       {reply.children && reply.children.length > 0 && (
         <div className="reply-children">
           {reply.children.map((child) => (
-            <ReplyItem key={child.id} reply={child} onReply={onReply} depth={depth + 1} />
+            <ReplyItem key={child.id} reply={child} onReply={onReply} onReport={onReport} depth={depth + 1} />
           ))}
         </div>
       )}
@@ -208,6 +214,9 @@ export default function PostDetail() {
   const [selectedOldVersion, setSelectedOldVersion] = useState(null)
   const [selectedNewVersion, setSelectedNewVersion] = useState(null)
   const [editNotification, setEditNotification] = useState(null)
+  const [reportModal, setReportModal] = useState(null)
+  const [reportReason, setReportReason] = useState('')
+  const [reportSubmitting, setReportSubmitting] = useState(false)
   const wsRef = useRef(null)
 
   const postId = parseInt(id)
@@ -334,6 +343,7 @@ export default function PostDetail() {
   const canDelete = isAuthor || isAdmin || isModerator
   const canPin = isAdmin || isModerator
   const canFavorite = isAuthenticated && post && !post.is_deleted
+  const canReportPost = isAuthenticated && user && post && !post.is_deleted && post.author_id !== user.id
 
   const handleReplyClick = (reply) => {
     setReplyTo(reply)
@@ -381,6 +391,27 @@ export default function PostDetail() {
       setPost(res.data)
     } catch (err) {
       alert('删除失败: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleOpenReport = (targetType, targetId) => {
+    setReportModal({ targetType, targetId })
+    setReportReason('')
+  }
+
+  const handleReport = async (e) => {
+    e.preventDefault()
+    if (!reportReason.trim()) return
+    setReportSubmitting(true)
+    try {
+      await createReport(reportModal.targetType, reportModal.targetId, reportReason.trim())
+      alert('举报已提交，我们会尽快处理')
+      setReportModal(null)
+      setReportReason('')
+    } catch (err) {
+      alert('举报失败: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setReportSubmitting(false)
     }
   }
 
@@ -477,6 +508,9 @@ export default function PostDetail() {
             {canDelete && !post.is_deleted && (
               <button className="btn btn-sm btn-danger" onClick={handleDelete}>删除</button>
             )}
+            {canReportPost && (
+              <button className="btn btn-sm btn-secondary" onClick={() => handleOpenReport('post', post.id)}>举报</button>
+            )}
           </div>
         </div>
 
@@ -539,7 +573,7 @@ export default function PostDetail() {
               <div className="empty-state"><p>暂无回复</p></div>
             ) : (
               replies.map((reply) => (
-                <ReplyItem key={reply.id} reply={reply} onReply={handleReplyClick} />
+                <ReplyItem key={reply.id} reply={reply} onReply={handleReplyClick} onReport={handleOpenReport} />
               ))
             )}
 
@@ -569,6 +603,33 @@ export default function PostDetail() {
             </div>
           )}
         </>
+      )}
+
+      {reportModal && (
+        <div className="modal-overlay" onClick={() => setReportModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>举报{reportModal.targetType === 'post' ? '帖子' : '回复'}</h3>
+            <form onSubmit={handleReport}>
+              <div className="form-group">
+                <label>举报原因</label>
+                <textarea
+                  className="form-control"
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  placeholder="请描述举报原因..."
+                  required
+                  rows={4}
+                />
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-secondary" type="button" onClick={() => setReportModal(null)}>取消</button>
+                <button className="btn btn-danger" type="submit" disabled={reportSubmitting}>
+                  {reportSubmitting ? '提交中...' : '提交举报'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   )
