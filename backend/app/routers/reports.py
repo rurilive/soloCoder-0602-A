@@ -307,12 +307,12 @@ async def _process_review(
             if reply:
                 reply.is_hidden = True
     elif action == "dismiss":
+        await db.flush()
         remaining_pending_result = await db.execute(
             select(func.count(Report.id)).where(
                 Report.target_type == report.target_type,
                 Report.target_id == report.target_id,
                 Report.status == "pending",
-                Report.id != report.id,
             )
         )
         remaining_pending = remaining_pending_result.scalar() or 0

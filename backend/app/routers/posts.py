@@ -71,6 +71,19 @@ def _can_moderate(user: User, section_id: int, moderators: list[Moderator]) -> b
     return False
 
 
+async def _is_moderator(db: AsyncSession, user: User | None) -> bool:
+    if not user:
+        return False
+    if user.role == "admin":
+        return True
+    if user.role == "moderator":
+        result = await db.execute(
+            select(Moderator).where(Moderator.user_id == user.id)
+        )
+        return result.scalar_one_or_none() is not None
+    return False
+
+
 async def _get_next_floor_number(db: AsyncSession, post_id: int) -> int:
     result = await db.execute(
         select(func.max(Reply.floor_number)).where(
@@ -253,15 +266,7 @@ async def get_post(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    is_moderator = False
-    if current_user:
-        if current_user.role == "admin":
-            is_moderator = True
-        elif current_user.role == "moderator":
-            mod_result = await db.execute(
-                select(Moderator).where(Moderator.user_id == current_user.id)
-            )
-            is_moderator = mod_result.scalar_one_or_none() is not None
+    is_moderator = await _is_moderator(db, current_user)
 
     if post.is_hidden and not is_moderator:
         raise HTTPException(status_code=404, detail="帖子不存在")
@@ -415,14 +420,7 @@ async def update_post(
     )
     post = result.scalar_one()
 
-    is_moderator = False
-    if current_user.role == "admin":
-        is_moderator = True
-    elif current_user.role == "moderator":
-        mod_result = await db.execute(
-            select(Moderator).where(Moderator.user_id == current_user.id)
-        )
-        is_moderator = mod_result.scalar_one_or_none() is not None
+    is_moderator = await _is_moderator(db, current_user)
 
     reply_responses = []
     for reply in post.replies:
@@ -852,15 +850,7 @@ async def list_replies(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    is_moderator = False
-    if current_user:
-        if current_user.role == "admin":
-            is_moderator = True
-        elif current_user.role == "moderator":
-            mod_result = await db.execute(
-                select(Moderator).where(Moderator.user_id == current_user.id)
-            )
-            is_moderator = mod_result.scalar_one_or_none() is not None
+    is_moderator = await _is_moderator(db, current_user)
 
     root_where = [
         Reply.post_id == post_id,
