@@ -93,6 +93,7 @@ function DiffViewer({ diff }) {
 
 function RevisionList({ revisions, onViewDiff, selectedOld, selectedNew, onSelectOld, onSelectNew }) {
   const { user } = useAuth()
+  const maxVersion = revisions.length > 0 ? Math.max(...revisions.map(r => r.version)) : 0
 
   return (
     <div className="revision-list">
@@ -122,9 +123,9 @@ function RevisionList({ revisions, onViewDiff, selectedOld, selectedNew, onSelec
       )}
 
       <div className="revision-items">
-        {revisions.map((rev, index) => {
+        {revisions.map((rev) => {
           const version = rev.version
-          const isLatest = index === 0
+          const isLatest = version === maxVersion
           const isSelectedOld = selectedOld === version
           const isSelectedNew = selectedNew === version
 

@@ -339,10 +339,11 @@ async def update_post(
         post.content = post_data.content
 
     if post_data.title is not None or post_data.content is not None:
-        count_result = await db.execute(
-            select(func.count(PostRevision.id)).where(PostRevision.post_id == post_id)
+        max_version_result = await db.execute(
+            select(func.max(PostRevision.version)).where(PostRevision.post_id == post_id)
         )
-        next_version = (count_result.scalar() or 0) + 1
+        current_max_version = max_version_result.scalar() or 0
+        next_version = current_max_version + 1
 
         revision = PostRevision(
             post_id=post_id,
@@ -521,13 +522,12 @@ async def get_post_diff(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    count_result = await db.execute(
-        select(func.count(PostRevision.id)).where(PostRevision.post_id == post_id)
+    max_version_result = await db.execute(
+        select(func.max(PostRevision.version)).where(PostRevision.post_id == post_id)
     )
-    total_revisions = count_result.scalar() or 0
-    max_version = total_revisions
+    max_version = max_version_result.scalar() or 0
 
-    if total_revisions == 0:
+    if max_version == 0:
         raise HTTPException(status_code=404, detail="该帖子暂无历史版本")
 
     if old_version < 1 or new_version > max_version:

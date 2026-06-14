@@ -176,6 +176,9 @@ class Message(Base):
 
 class PostRevision(Base):
     __tablename__ = "post_revisions"
+    __table_args__ = (
+        UniqueConstraint("post_id", "version", name="uq_post_revisions_post_id_version"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False)
