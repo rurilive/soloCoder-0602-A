@@ -122,50 +122,20 @@ function RevisionList({ revisions, onViewDiff, selectedOld, selectedNew, onSelec
       )}
 
       <div className="revision-items">
-        <div 
-          className={`revision-item current-version ${selectedNew === revisions.length + 1 ? 'selected-new' : ''}`}
-        >
-          <div className="revision-version-badge">当前版本</div>
-          <div className="revision-info">
-            <div className="revision-meta">
-              <span 
-                className="revision-version"
-                style={{ cursor: 'pointer' }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  const currentVersion = revisions.length + 1
-                  if (selectedNew === currentVersion) {
-                    onSelectNew(null)
-                  } else if (selectedOld === null || (selectedOld !== null && selectedNew !== null)) {
-                    onSelectOld(null)
-                    onSelectNew(currentVersion)
-                  } else if (selectedNew === null) {
-                    if (currentVersion > selectedOld) {
-                      onSelectNew(currentVersion)
-                    } else {
-                      onSelectOld(currentVersion)
-                      onSelectNew(null)
-                    }
-                  }
-                }}
-              >
-                [{selectedNew === revisions.length + 1 ? '新版本' : `v${revisions.length + 1}`}]
-              </span>
-            </div>
-          </div>
-        </div>
-
         {revisions.map((rev, index) => {
-          const version = revisions.length - index
+          const version = rev.version
+          const isLatest = index === 0
           const isSelectedOld = selectedOld === version
           const isSelectedNew = selectedNew === version
 
           return (
             <div 
               key={rev.id} 
-              className={`revision-item ${isSelectedOld ? 'selected-old' : ''} ${isSelectedNew ? 'selected-new' : ''}`}
+              className={`revision-item ${isLatest ? 'current-version' : ''} ${isSelectedOld ? 'selected-old' : ''} ${isSelectedNew ? 'selected-new' : ''}`}
             >
-              <div className="revision-version-badge">v{version}</div>
+              <div className="revision-version-badge">
+                {isLatest ? '当前版本' : `v${version}`}
+              </div>
               <div className="revision-info">
                 <div className="revision-meta">
                   <span 
@@ -240,6 +210,16 @@ export default function PostDetail() {
   const wsRef = useRef(null)
 
   const postId = parseInt(id)
+  const activeTabRef = useRef(activeTab)
+  const userRef = useRef(user)
+
+  useEffect(() => {
+    activeTabRef.current = activeTab
+  }, [activeTab])
+
+  useEffect(() => {
+    userRef.current = user
+  }, [user])
 
   const loadRevisions = useCallback(async () => {
     setRevisionsLoading(true)
@@ -307,10 +287,11 @@ export default function PostDetail() {
       try {
         const data = JSON.parse(event.data)
         if (data.type === 'post_edited') {
-          if (!user || data.editor_id !== user.id) {
+          const currentUser = userRef.current
+          if (!currentUser || data.editor_id !== currentUser.id) {
             setEditNotification(data)
           }
-          if (activeTab === 'history') {
+          if (activeTabRef.current === 'history') {
             loadRevisions()
           }
         }
@@ -332,7 +313,7 @@ export default function PostDetail() {
         ws.close()
       }
     }
-  }, [postId, user, activeTab, loadRevisions])
+  }, [postId, loadRevisions])
 
   const handleRefreshPost = async () => {
     try {

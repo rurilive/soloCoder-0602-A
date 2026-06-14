@@ -216,6 +216,17 @@ async def create_post(
     await db.commit()
     await db.refresh(post)
 
+    revision = PostRevision(
+        post_id=post.id,
+        title=post.title,
+        content=post.content,
+        editor_id=current_user.id,
+        edit_reason=None,
+        version=1,
+    )
+    db.add(revision)
+    await db.commit()
+
     await create_mentions_and_notifications(db, post, current_user, post_data.content)
 
     result = await db.execute(
@@ -322,9 +333,6 @@ async def update_post(
     if post.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="只能编辑自己的帖子")
 
-    old_title = post.title
-    old_content = post.content
-
     if post_data.title is not None:
         post.title = post_data.title
     if post_data.content is not None:
@@ -338,8 +346,8 @@ async def update_post(
 
         revision = PostRevision(
             post_id=post_id,
-            title=old_title,
-            content=old_content,
+            title=post.title,
+            content=post.content,
             editor_id=current_user.id,
             edit_reason=post_data.edit_reason,
             version=next_version,
@@ -513,57 +521,46 @@ async def get_post_diff(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    if old_version >= new_version:
-        raise HTTPException(status_code=400, detail="旧版本号必须小于新版本号")
-
     count_result = await db.execute(
         select(func.count(PostRevision.id)).where(PostRevision.post_id == post_id)
     )
     total_revisions = count_result.scalar() or 0
-    max_version = total_revisions + 1
+    max_version = total_revisions
+
+    if total_revisions == 0:
+        raise HTTPException(status_code=404, detail="该帖子暂无历史版本")
 
     if old_version < 1 or new_version > max_version:
         raise HTTPException(status_code=400, detail=f"版本号必须在 1 到 {max_version} 之间")
 
-    old_rev = None
-    new_rev = None
-    new_is_current = (new_version == max_version)
+    if old_version >= new_version:
+        raise HTTPException(status_code=400, detail="旧版本号必须小于新版本号")
 
-    if old_version <= total_revisions:
-        old_result = await db.execute(
-            select(PostRevision).where(
-                PostRevision.post_id == post_id,
-                PostRevision.version == old_version,
-            )
+    old_result = await db.execute(
+        select(PostRevision).where(
+            PostRevision.post_id == post_id,
+            PostRevision.version == old_version,
         )
-        old_rev = old_result.scalar_one_or_none()
+    )
+    old_rev = old_result.scalar_one_or_none()
 
-    if not new_is_current and new_version <= total_revisions:
-        new_result = await db.execute(
-            select(PostRevision).where(
-                PostRevision.post_id == post_id,
-                PostRevision.version == new_version,
-            )
+    new_result = await db.execute(
+        select(PostRevision).where(
+            PostRevision.post_id == post_id,
+            PostRevision.version == new_version,
         )
-        new_rev = new_result.scalar_one_or_none()
+    )
+    new_rev = new_result.scalar_one_or_none()
 
-    if old_version == 1 and old_rev is None:
-        old_title = post.title
-        old_content = post.content
-    elif old_rev:
-        old_title = old_rev.title
-        old_content = old_rev.content
-    else:
+    if not old_rev:
         raise HTTPException(status_code=404, detail=f"版本 {old_version} 不存在")
-
-    if new_is_current:
-        new_title = post.title
-        new_content = post.content
-    elif new_rev:
-        new_title = new_rev.title
-        new_content = new_rev.content
-    else:
+    if not new_rev:
         raise HTTPException(status_code=404, detail=f"版本 {new_version} 不存在")
+
+    old_title = old_rev.title
+    old_content = old_rev.content
+    new_title = new_rev.title
+    new_content = new_rev.content
 
     title_diff_ops = compute_diff(old_title, new_title, word_level=False)
     content_diff_ops = compute_diff(old_content, new_content, word_level=True)
