@@ -213,8 +213,7 @@ async def create_post(
         author_id=current_user.id,
     )
     db.add(post)
-    await db.commit()
-    await db.refresh(post)
+    await db.flush()
 
     revision = PostRevision(
         post_id=post.id,
@@ -226,6 +225,7 @@ async def create_post(
     )
     db.add(revision)
     await db.commit()
+    await db.refresh(post)
 
     await create_mentions_and_notifications(db, post, current_user, post_data.content)
 
