@@ -5,9 +5,11 @@ from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from app.auth import get_current_user, get_optional_current_user
 from app.database import get_db
-from app.models import Favorite, Moderator, Post, Reply, Section, User
+from app.models import Favorite, Mention, Moderator, Post, Reply, Section, User
 from app.schemas import (
     AuthorBrief,
+    MentionResponse,
+    PaginatedMentionsResponse,
     PaginatedRepliesResponse,
     PaginatedResponse,
     PostCreate,
@@ -462,6 +464,49 @@ async def create_reply(
     return _build_flat_reply_response(reply)
 
 
+def _build_reply_subtree(
+    all_replies: list[Reply],
+    root_reply_ids: set[int],
+) -> list[ReplyResponse]:
+    reply_map: dict[int, ReplyResponse] = {}
+    for reply in all_replies:
+        if reply.is_deleted:
+            continue
+        reply_map[reply.id] = ReplyResponse(
+            id=reply.id,
+            content=reply.content,
+            post_id=reply.post_id,
+            author_id=reply.author_id,
+            author=AuthorBrief(
+                id=reply.author.id,
+                username=reply.author.username,
+                avatar=reply.author.avatar,
+            ),
+            parent_id=reply.parent_id,
+            floor_number=reply.floor_number,
+            is_deleted=reply.is_deleted,
+            created_at=reply.created_at,
+            children=[],
+        )
+
+    root_replies: list[ReplyResponse] = []
+    for reply in all_replies:
+        if reply.is_deleted:
+            continue
+        reply_resp = reply_map[reply.id]
+        if reply.parent_id is None:
+            if reply.id in root_reply_ids:
+                root_replies.append(reply_resp)
+        elif reply.parent_id in reply_map:
+            reply_map[reply.parent_id].children.append(reply_resp)
+
+    for reply_resp in reply_map.values():
+        reply_resp.children.sort(key=lambda r: r.created_at)
+
+    root_replies.sort(key=lambda r: r.floor_number)
+    return root_replies
+
+
 @router.get("/posts/{post_id}/replies", response_model=PaginatedRepliesResponse)
 async def list_replies(
     post_id: int,
@@ -484,7 +529,23 @@ async def list_replies(
     )
     total = count_result.scalar() or 0
 
-    all_stmt = (
+    paginated_root_stmt = (
+        select(Reply)
+        .where(
+            Reply.post_id == post_id,
+            Reply.is_deleted == False,
+            Reply.parent_id.is_(None),
+        )
+        .order_by(Reply.floor_number.asc())
+        .offset(skip)
+        .limit(limit)
+        .options(selectinload(Reply.author))
+    )
+    paginated_root_result = await db.execute(paginated_root_stmt)
+    paginated_roots = paginated_root_result.scalars().all()
+    root_reply_ids = {r.id for r in paginated_roots}
+
+    all_replies_stmt = (
         select(Reply)
         .where(
             Reply.post_id == post_id,
@@ -493,11 +554,10 @@ async def list_replies(
         .order_by(Reply.created_at.asc())
         .options(selectinload(Reply.author))
     )
-    all_result = await db.execute(all_stmt)
-    all_replies = all_result.scalars().all()
+    all_replies_result = await db.execute(all_replies_stmt)
+    all_replies = all_replies_result.scalars().all()
 
-    tree_replies = _build_reply_tree(all_replies)
-    paginated_items = tree_replies[skip : skip + limit]
+    paginated_items = _build_reply_subtree(all_replies, root_reply_ids)
 
     return PaginatedRepliesResponse(
         items=paginated_items,
@@ -650,3 +710,129 @@ async def unfavorite_post(
     await db.delete(favorite)
     await db.commit()
     return {"message": "取消收藏成功", "favorited": False}
+
+
+@router.get("/posts/{post_id}/mentions", response_model=PaginatedMentionsResponse)
+async def list_post_mentions(
+    post_id: int,
+    skip: int = 0,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.is_deleted == False)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    count_result = await db.execute(
+        select(func.count(Mention.id)).where(Mention.post_id == post_id)
+    )
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(Mention)
+        .where(Mention.post_id == post_id)
+        .order_by(Mention.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .options(
+            selectinload(Mention.mentioned_by),
+            selectinload(Mention.mentioned_user),
+        )
+    )
+    result = await db.execute(stmt)
+    mentions = result.scalars().all()
+
+    items = []
+    for m in mentions:
+        items.append(
+            MentionResponse(
+                id=m.id,
+                post_id=m.post_id,
+                reply_id=m.reply_id,
+                mentioned_by_id=m.mentioned_by_id,
+                mentioned_user_id=m.mentioned_user_id,
+                mentioned_by=AuthorBrief(
+                    id=m.mentioned_by.id,
+                    username=m.mentioned_by.username,
+                    avatar=m.mentioned_by.avatar,
+                ),
+                mentioned_user=AuthorBrief(
+                    id=m.mentioned_user.id,
+                    username=m.mentioned_user.username,
+                    avatar=m.mentioned_user.avatar,
+                ),
+                created_at=m.created_at,
+            )
+        )
+
+    return PaginatedMentionsResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/mentions", response_model=PaginatedMentionsResponse)
+async def list_all_mentions(
+    skip: int = 0,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    count_result = await db.execute(
+        select(func.count(Mention.id)).where(
+            (Mention.mentioned_user_id == current_user.id)
+            | (Mention.mentioned_by_id == current_user.id)
+        )
+    )
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(Mention)
+        .where(
+            (Mention.mentioned_user_id == current_user.id)
+            | (Mention.mentioned_by_id == current_user.id)
+        )
+        .order_by(Mention.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .options(
+            selectinload(Mention.mentioned_by),
+            selectinload(Mention.mentioned_user),
+        )
+    )
+    result = await db.execute(stmt)
+    mentions = result.scalars().all()
+
+    items = []
+    for m in mentions:
+        items.append(
+            MentionResponse(
+                id=m.id,
+                post_id=m.post_id,
+                reply_id=m.reply_id,
+                mentioned_by_id=m.mentioned_by_id,
+                mentioned_user_id=m.mentioned_user_id,
+                mentioned_by=AuthorBrief(
+                    id=m.mentioned_by.id,
+                    username=m.mentioned_by.username,
+                    avatar=m.mentioned_by.avatar,
+                ),
+                mentioned_user=AuthorBrief(
+                    id=m.mentioned_user.id,
+                    username=m.mentioned_user.username,
+                    avatar=m.mentioned_user.avatar,
+                ),
+                created_at=m.created_at,
+            )
+        )
+
+    return PaginatedMentionsResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )

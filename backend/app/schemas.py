@@ -284,3 +284,23 @@ class PaginatedRepliesResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class MentionResponse(BaseModel):
+    id: int
+    post_id: int
+    reply_id: int | None = None
+    mentioned_by_id: int
+    mentioned_user_id: int
+    mentioned_by: AuthorBrief
+    mentioned_user: AuthorBrief
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedMentionsResponse(BaseModel):
+    items: list[MentionResponse]
+    total: int
+    skip: int
+    limit: int
