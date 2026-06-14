@@ -4,9 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_admin_user
 from app.database import get_db
-from app.models import Moderator, Post, User
+from app.models import Moderator, Notification, Post, ReputationLog, User
 from app.schemas import MuteUpdate, ModeratorCreate, ModeratorResponse, ReputationAdjust, UserResponse
-from app.services.reputation import RESTRICTED_THRESHOLD, change_reputation
+from app.services.reputation import (
+    RESTRICTED_THRESHOLD,
+    _check_and_update_role,
+    _send_role_change_notification,
+    change_reputation,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -95,14 +100,29 @@ async def mute_user(
     if not mute_data.is_muted and user.is_muted:
         if user.reputation < RESTRICTED_THRESHOLD:
             change_amount = RESTRICTED_THRESHOLD - user.reputation
-            await change_reputation(
-                db,
+            user.reputation = RESTRICTED_THRESHOLD
+
+            log = ReputationLog(
                 user_id=user_id,
                 change=change_amount,
                 reason="管理员解禁，恢复声望至受限阈值",
                 reason_type="unmute_restore",
                 operator_id=admin.id,
             )
+            db.add(log)
+
+            role_change = await _check_and_update_role(db, user)
+            if role_change:
+                await _send_role_change_notification(db, user_id, role_change)
+
+            sign = "+" if change_amount > 0 else ""
+            notif_content = f"你的声望{sign}{change_amount}（当前：{user.reputation}）：管理员解禁，恢复声望至受限阈值"
+            db.add(Notification(
+                user_id=user_id,
+                type="reputation_change",
+                content=notif_content,
+                actor_id=admin.id,
+            ))
         elif user.role == "restricted":
             user.role = "user"
 
