@@ -6,7 +6,7 @@ from app.auth import get_admin_user
 from app.database import get_db
 from app.models import Moderator, Post, User
 from app.schemas import MuteUpdate, ModeratorCreate, ModeratorResponse, ReputationAdjust, UserResponse
-from app.services.reputation import change_reputation
+from app.services.reputation import RESTRICTED_THRESHOLD, change_reputation
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -93,7 +93,17 @@ async def mute_user(
         )
 
     if not mute_data.is_muted and user.is_muted:
-        if user.role == "restricted":
+        if user.reputation < RESTRICTED_THRESHOLD:
+            change_amount = RESTRICTED_THRESHOLD - user.reputation
+            await change_reputation(
+                db,
+                user_id=user_id,
+                change=change_amount,
+                reason="管理员解禁，恢复声望至受限阈值",
+                reason_type="unmute_restore",
+                operator_id=admin.id,
+            )
+        elif user.role == "restricted":
             user.role = "user"
 
     user.is_muted = mute_data.is_muted
