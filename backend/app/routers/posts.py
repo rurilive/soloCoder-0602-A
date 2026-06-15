@@ -33,7 +33,7 @@ from app.schemas import (
 from app.services.notification import create_mentions_and_notifications
 from app.services.reputation import change_reputation
 from app.utils.diff import compute_diff
-from app.utils.sensitive_words import find_sensitive_words, load_sensitive_words_from_db
+from app.utils.sensitive_words import find_sensitive_words
 
 router = APIRouter(prefix="/api", tags=["posts"])
 
@@ -236,8 +236,6 @@ async def create_post(
     result = await db.execute(select(Section).where(Section.id == section_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="板块不存在")
-
-    await load_sensitive_words_from_db(db)
 
     combined_text = f"{post_data.title}\n{post_data.content}"
     hit_words = find_sensitive_words(combined_text)
@@ -827,7 +825,6 @@ async def create_reply(
 
     floor_number = await _get_next_floor_number(db, post_id)
 
-    await load_sensitive_words_from_db(db)
     hit_words = find_sensitive_words(reply_data.content)
     is_pending = len(hit_words) > 0
 

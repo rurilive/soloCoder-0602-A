@@ -505,8 +505,7 @@ async def list_pending_review_items(
     if not await is_moderator(db, current_user):
         raise HTTPException(status_code=403, detail="需要管理员或版主权限")
 
-    items = []
-    total = 0
+    all_ids = []
 
     if target_type is None or target_type == "post":
         post_where = [
@@ -516,63 +515,10 @@ async def list_pending_review_items(
         if section_id is not None:
             post_where.append(Post.section_id == section_id)
 
-        post_count_result = await db.execute(
-            select(func.count(Post.id)).where(*post_where)
-        )
-        total += post_count_result.scalar() or 0
-
-    if target_type is None or target_type == "reply":
-        reply_where = [
-            Reply.is_deleted == False,
-            Reply.is_pending_review == True,
-        ]
-        if section_id is not None:
-            post_ids_stmt = select(Post.id).where(Post.section_id == section_id)
-            reply_where.append(Reply.post_id.in_(post_ids_stmt))
-
-        reply_count_result = await db.execute(
-            select(func.count(Reply.id)).where(*reply_where)
-        )
-        total += reply_count_result.scalar() or 0
-
-    if target_type is None or target_type == "post":
-        post_where = [
-            Post.is_deleted == False,
-            Post.is_pending_review == True,
-        ]
-        if section_id is not None:
-            post_where.append(Post.section_id == section_id)
-
-        post_stmt = (
-            select(Post)
-            .where(*post_where)
-            .order_by(Post.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .options(selectinload(Post.author), selectinload(Post.section))
-        )
+        post_stmt = select(Post.id, Post.created_at).where(*post_where)
         post_result = await db.execute(post_stmt)
-        posts = post_result.scalars().all()
-
-        for post in posts:
-            items.append(
-                PendingReviewItem(
-                    id=post.id,
-                    target_type="post",
-                    title=post.title,
-                    content=post.content,
-                    author_id=post.author_id,
-                    author=AuthorBrief(
-                        id=post.author.id,
-                        username=post.author.username,
-                        avatar=post.author.avatar,
-                        reputation=post.author.reputation,
-                    ),
-                    section_id=post.section_id,
-                    section_name=post.section.name if post.section else None,
-                    created_at=post.created_at,
-                )
-            )
+        for row in post_result.all():
+            all_ids.append(("post", row.id, row.created_at))
 
     if target_type is None or target_type == "reply":
         reply_where = [
@@ -583,43 +529,88 @@ async def list_pending_review_items(
             post_ids_stmt = select(Post.id).where(Post.section_id == section_id)
             reply_where.append(Reply.post_id.in_(post_ids_stmt))
 
-        reply_stmt = (
-            select(Reply)
-            .where(*reply_where)
-            .order_by(Reply.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .options(
-                selectinload(Reply.author),
-                selectinload(Reply.post).selectinload(Post.section),
-            )
-        )
+        reply_stmt = select(Reply.id, Reply.created_at).where(*reply_where)
         reply_result = await db.execute(reply_stmt)
-        replies = reply_result.scalars().all()
+        for row in reply_result.all():
+            all_ids.append(("reply", row.id, row.created_at))
 
-        for reply in replies:
-            content_preview = reply.content[:200] + ("..." if len(reply.content) > 200 else "")
-            items.append(
-                PendingReviewItem(
-                    id=reply.id,
-                    target_type="reply",
-                    title=None,
-                    content=content_preview,
-                    author_id=reply.author_id,
-                    author=AuthorBrief(
-                        id=reply.author.id,
-                        username=reply.author.username,
-                        avatar=reply.author.avatar,
-                        reputation=reply.author.reputation,
-                    ),
-                    section_id=reply.post.section_id if reply.post else None,
-                    section_name=reply.post.section.name if reply.post and reply.post.section else None,
-                    created_at=reply.created_at,
+    total = len(all_ids)
+    all_ids.sort(key=lambda x: x[2], reverse=True)
+    paged_ids = all_ids[skip : skip + limit]
+
+    items = []
+
+    if paged_ids:
+        post_ids = [pid for ttype, pid, _ in paged_ids if ttype == "post"]
+        reply_ids = [rid for ttype, rid, _ in paged_ids if ttype == "reply"]
+
+        post_map = {}
+        if post_ids:
+            post_stmt = (
+                select(Post)
+                .where(Post.id.in_(post_ids))
+                .options(selectinload(Post.author), selectinload(Post.section))
+            )
+            post_result = await db.execute(post_stmt)
+            for post in post_result.scalars().all():
+                post_map[post.id] = post
+
+        reply_map = {}
+        if reply_ids:
+            reply_stmt = (
+                select(Reply)
+                .where(Reply.id.in_(reply_ids))
+                .options(
+                    selectinload(Reply.author),
+                    selectinload(Reply.post).selectinload(Post.section),
                 )
             )
+            reply_result = await db.execute(reply_stmt)
+            for reply in reply_result.scalars().all():
+                reply_map[reply.id] = reply
 
-    items.sort(key=lambda x: x.created_at, reverse=True)
-    items = items[skip : skip + limit]
+        for ttype, tid, _ in paged_ids:
+            if ttype == "post" and tid in post_map:
+                post = post_map[tid]
+                items.append(
+                    PendingReviewItem(
+                        id=post.id,
+                        target_type="post",
+                        title=post.title,
+                        content=post.content,
+                        author_id=post.author_id,
+                        author=AuthorBrief(
+                            id=post.author.id,
+                            username=post.author.username,
+                            avatar=post.author.avatar,
+                            reputation=post.author.reputation,
+                        ),
+                        section_id=post.section_id,
+                        section_name=post.section.name if post.section else None,
+                        created_at=post.created_at,
+                    )
+                )
+            elif ttype == "reply" and tid in reply_map:
+                reply = reply_map[tid]
+                content_preview = reply.content[:200] + ("..." if len(reply.content) > 200 else "")
+                items.append(
+                    PendingReviewItem(
+                        id=reply.id,
+                        target_type="reply",
+                        title=None,
+                        content=content_preview,
+                        author_id=reply.author_id,
+                        author=AuthorBrief(
+                            id=reply.author.id,
+                            username=reply.author.username,
+                            avatar=reply.author.avatar,
+                            reputation=reply.author.reputation,
+                        ),
+                        section_id=reply.post.section_id if reply.post else None,
+                        section_name=reply.post.section.name if reply.post and reply.post.section else None,
+                        created_at=reply.created_at,
+                    )
+                )
 
     return PaginatedPendingReviewsResponse(
         items=items,
