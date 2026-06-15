@@ -21,7 +21,12 @@ export default function CreatePost() {
     setError('')
     try {
       const res = await api.post(`/api/sections/${sectionId}/posts`, { title, content })
-      navigate(`/post/${res.data.id}`)
+      if (res.data.is_pending_review) {
+        alert('您的帖子已提交，正在审核中，审核通过后将正常展示。您可以在"我的帖子"中查看。')
+        navigate('/profile')
+      } else {
+        navigate(`/post/${res.data.id}`)
+      }
     } catch (err) {
       setError(err.response?.data?.detail || '发布失败')
     } finally {

@@ -33,6 +33,7 @@ from app.schemas import (
 from app.services.notification import create_mentions_and_notifications
 from app.services.reputation import change_reputation
 from app.utils.diff import compute_diff
+from app.utils.sensitive_words import find_sensitive_words, load_sensitive_words_from_db
 
 router = APIRouter(prefix="/api", tags=["posts"])
 
@@ -99,6 +100,7 @@ def _build_flat_reply_response(reply: Reply) -> ReplyResponse:
         floor_number=reply.floor_number,
         is_deleted=reply.is_deleted,
         is_hidden=reply.is_hidden,
+        is_pending_review=reply.is_pending_review,
         created_at=reply.created_at,
     )
 
@@ -125,6 +127,7 @@ def _build_reply_tree(replies: list[Reply]) -> list[ReplyResponse]:
             floor_number=reply.floor_number,
             is_deleted=reply.is_deleted,
             is_hidden=reply.is_hidden,
+            is_pending_review=reply.is_pending_review,
             created_at=reply.created_at,
             children=[],
         )
@@ -151,14 +154,33 @@ async def list_posts(
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     result = await db.execute(select(Section).where(Section.id == section_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="板块不存在")
 
+    is_mod = await is_moderator(db, current_user)
+
+    base_where = [
+        Post.section_id == section_id,
+        Post.is_deleted == False,
+    ]
+
+    if not is_mod:
+        if current_user is not None:
+            from sqlalchemy import or_
+            base_where.append(or_(Post.is_hidden == False, Post.author_id == current_user.id))
+            base_where.append(or_(Post.is_pending_review == False, Post.author_id == current_user.id))
+        else:
+            base_where.append(Post.is_hidden == False)
+            base_where.append(Post.is_pending_review == False)
+    else:
+        base_where.append(Post.is_hidden == False)
+
     stmt = (
         select(Post)
-        .where(Post.section_id == section_id, Post.is_deleted == False, Post.is_hidden == False)
+        .where(*base_where)
         .order_by(Post.is_pinned.desc(), Post.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -215,11 +237,18 @@ async def create_post(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="板块不存在")
 
+    await load_sensitive_words_from_db(db)
+
+    combined_text = f"{post_data.title}\n{post_data.content}"
+    hit_words = find_sensitive_words(combined_text)
+    is_pending = len(hit_words) > 0
+
     post = Post(
         title=post_data.title,
         content=post_data.content,
         section_id=section_id,
         author_id=current_user.id,
+        is_pending_review=is_pending,
     )
     db.add(post)
     await db.flush()
@@ -235,17 +264,24 @@ async def create_post(
     )
     db.add(revision)
 
-    await change_reputation(
-        db,
-        user_id=current_user.id,
-        change=2,
-        reason=f"发布帖子《{post.title}》",
-        reason_type="create_post",
-        post_id=post.id,
-    )
+    if not is_pending:
+        await change_reputation(
+            db,
+            user_id=current_user.id,
+            change=2,
+            reason=f"发布帖子《{post.title}》",
+            reason_type="create_post",
+            post_id=post.id,
+        )
+
     await db.commit()
 
-    await create_mentions_and_notifications(db, post, current_user, post_data.content)
+    if not is_pending:
+        await create_mentions_and_notifications(db, post, current_user, post_data.content)
+
+    if is_pending:
+        from app.routers.reports import auto_report_for_sensitive
+        await auto_report_for_sensitive(db, current_user.id, "post", post.id, hit_words)
 
     result = await db.execute(
         select(Post).where(Post.id == post.id).options(selectinload(Post.author), selectinload(Post.replies))
@@ -268,14 +304,19 @@ async def get_post(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    is_moderator = await is_moderator(db, current_user)
+    is_mod = await is_moderator(db, current_user)
+    is_author = current_user is not None and post.author_id == current_user.id
 
-    if post.is_hidden and not is_moderator:
+    if post.is_hidden and not is_mod:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    post.view_count += 1
-    await db.commit()
-    await db.refresh(post)
+    if post.is_pending_review and not is_mod and not is_author:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    if not post.is_pending_review or is_mod:
+        post.view_count += 1
+        await db.commit()
+        await db.refresh(post)
 
     result = await db.execute(
         select(Post)
@@ -299,26 +340,32 @@ async def get_post(
 
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted and (is_moderator or not reply.is_hidden):
-            reply_responses.append(
-                ReplyResponse(
-                    id=reply.id,
-                    content=reply.content,
-                    post_id=reply.post_id,
-                    author_id=reply.author_id,
-                    author=AuthorBrief(
-                        id=reply.author.id,
-                        username=reply.author.username,
-                        avatar=reply.author.avatar,
-                        reputation=reply.author.reputation,
-                    ),
-                    parent_id=reply.parent_id,
-                    floor_number=reply.floor_number,
-                    is_deleted=reply.is_deleted,
-                    is_hidden=reply.is_hidden,
-                    created_at=reply.created_at,
-                )
+        if reply.is_deleted:
+            continue
+        if reply.is_hidden and not is_mod:
+            continue
+        if reply.is_pending_review and not is_mod and not (current_user and reply.author_id == current_user.id):
+            continue
+        reply_responses.append(
+            ReplyResponse(
+                id=reply.id,
+                content=reply.content,
+                post_id=reply.post_id,
+                author_id=reply.author_id,
+                author=AuthorBrief(
+                    id=reply.author.id,
+                    username=reply.author.username,
+                    avatar=reply.author.avatar,
+                    reputation=reply.author.reputation,
+                ),
+                parent_id=reply.parent_id,
+                floor_number=reply.floor_number,
+                is_deleted=reply.is_deleted,
+                is_hidden=reply.is_hidden,
+                is_pending_review=reply.is_pending_review,
+                created_at=reply.created_at,
             )
+        )
 
     return PostResponse(
         id=post.id,
@@ -335,6 +382,7 @@ async def get_post(
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
+        is_pending_review=post.is_pending_review,
         view_count=post.view_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
@@ -779,41 +827,52 @@ async def create_reply(
 
     floor_number = await _get_next_floor_number(db, post_id)
 
+    await load_sensitive_words_from_db(db)
+    hit_words = find_sensitive_words(reply_data.content)
+    is_pending = len(hit_words) > 0
+
     reply = Reply(
         content=reply_data.content,
         post_id=post_id,
         author_id=current_user.id,
         parent_id=reply_data.parent_id,
         floor_number=floor_number,
+        is_pending_review=is_pending,
     )
     db.add(reply)
     await db.flush()
     await db.refresh(reply)
 
-    await change_reputation(
-        db,
-        user_id=current_user.id,
-        change=1,
-        reason=f"在帖子《{post.title}》中回复",
-        reason_type="create_reply",
-        post_id=post_id,
-        reply_id=reply.id,
-    )
-
-    if post.author_id != current_user.id:
+    if not is_pending:
         await change_reputation(
             db,
-            user_id=post.author_id,
-            change=3,
-            reason=f"你的帖子《{post.title}》被 {current_user.username} 回复",
-            reason_type="post_replied",
+            user_id=current_user.id,
+            change=1,
+            reason=f"在帖子《{post.title}》中回复",
+            reason_type="create_reply",
             post_id=post_id,
             reply_id=reply.id,
         )
 
+        if post.author_id != current_user.id:
+            await change_reputation(
+                db,
+                user_id=post.author_id,
+                change=3,
+                reason=f"你的帖子《{post.title}》被 {current_user.username} 回复",
+                reason_type="post_replied",
+                post_id=post_id,
+                reply_id=reply.id,
+            )
+
     await db.commit()
 
-    await create_mentions_and_notifications(db, post, current_user, reply_data.content, reply)
+    if not is_pending:
+        await create_mentions_and_notifications(db, post, current_user, reply_data.content, reply)
+
+    if is_pending:
+        from app.routers.reports import auto_report_for_sensitive
+        await auto_report_for_sensitive(db, current_user.id, "reply", reply.id, hit_words)
 
     result = await db.execute(
         select(Reply).where(Reply.id == reply.id).options(
@@ -848,6 +907,7 @@ def _build_reply_subtree(
             floor_number=reply.floor_number,
             is_deleted=reply.is_deleted,
             is_hidden=reply.is_hidden,
+            is_pending_review=reply.is_pending_review,
             created_at=reply.created_at,
             children=[],
         )
@@ -884,15 +944,20 @@ async def list_replies(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    is_moderator = await is_moderator(db, current_user)
+    is_mod = await is_moderator(db, current_user)
 
     root_where = [
         Reply.post_id == post_id,
         Reply.is_deleted == False,
         Reply.parent_id.is_(None),
     ]
-    if not is_moderator:
+    if not is_mod:
         root_where.append(Reply.is_hidden == False)
+        if current_user is not None:
+            from sqlalchemy import or_
+            root_where.append(or_(Reply.is_pending_review == False, Reply.author_id == current_user.id))
+        else:
+            root_where.append(Reply.is_pending_review == False)
 
     count_result = await db.execute(
         select(func.count(Reply.id)).where(*root_where)
@@ -915,8 +980,13 @@ async def list_replies(
         Reply.post_id == post_id,
         Reply.is_deleted == False,
     ]
-    if not is_moderator:
+    if not is_mod:
         all_where.append(Reply.is_hidden == False)
+        if current_user is not None:
+            from sqlalchemy import or_
+            all_where.append(or_(Reply.is_pending_review == False, Reply.author_id == current_user.id))
+        else:
+            all_where.append(Reply.is_pending_review == False)
 
     all_replies_stmt = (
         select(Reply)

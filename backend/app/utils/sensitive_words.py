@@ -1,7 +1,8 @@
 import re
 import unicodedata
+from typing import Optional
 
-SENSITIVE_WORDS = [
+DEFAULT_SENSITIVE_WORDS = [
     "暴力", "色情", "赌博", "毒品", "枪支", "炸弹",
     "诈骗", "洗钱", "传销", "非法", "违禁",
     "暴恐", "分裂", "颠覆", "极端", "邪教",
@@ -13,8 +14,6 @@ SENSITIVE_WORDS = [
     "诈骗集团", "电信诈骗", "网络诈骗",
     "传销组织", "非法集资", "庞氏骗局",
 ]
-
-SENSITIVE_WORDS.sort(key=len, reverse=True)
 
 VARIANT_MAP = {
     "暴": ["爆", "暴", "虣", "暴"],
@@ -110,6 +109,10 @@ NORMALIZE_MAP = str.maketrans({
     "Ｚ": "Z",
 })
 
+_cached_words: Optional[list[str]] = None
+_compiled_patterns: dict[str, re.Pattern] = {}
+_cache_loaded = False
+
 
 def _preprocess(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
@@ -143,9 +146,6 @@ def _build_pattern(variants: list[str]) -> re.Pattern:
     return re.compile(combined, re.IGNORECASE | re.UNICODE)
 
 
-_compiled_patterns: dict[str, re.Pattern] = {}
-
-
 def _get_or_build_pattern(word: str) -> re.Pattern:
     if word not in _compiled_patterns:
         variants = _generate_variants(word)
@@ -158,13 +158,32 @@ def _count_chars(match: str) -> int:
     return len(sep_re.sub("", match))
 
 
+def _get_active_words() -> list[str]:
+    if _cached_words is not None:
+        return _cached_words
+    return DEFAULT_SENSITIVE_WORDS
+
+
+def refresh_sensitive_word_cache() -> None:
+    global _cached_words, _compiled_patterns, _cache_loaded
+    _compiled_patterns.clear()
+    _cache_loaded = False
+
+
+def set_sensitive_words(words: list[str]) -> None:
+    global _cached_words, _cache_loaded
+    _cached_words = sorted(set(words), key=len, reverse=True)
+    _compiled_patterns.clear()
+    _cache_loaded = True
+
+
 def filter_sensitive_words(text: str) -> str:
     if not text:
         return text
     processed = _preprocess(text)
     result = processed
 
-    for word in SENSITIVE_WORDS:
+    for word in _get_active_words():
         pattern = _get_or_build_pattern(word)
 
         def _replace(match):
@@ -181,8 +200,35 @@ def contains_sensitive_words(text: str) -> bool:
     if not text:
         return False
     processed = _preprocess(text)
-    for word in SENSITIVE_WORDS:
+    for word in _get_active_words():
         pattern = _get_or_build_pattern(word)
         if pattern.search(processed):
             return True
     return False
+
+
+def find_sensitive_words(text: str) -> list[str]:
+    if not text:
+        return []
+    processed = _preprocess(text)
+    found = []
+    for word in _get_active_words():
+        pattern = _get_or_build_pattern(word)
+        if pattern.search(processed):
+            found.append(word)
+    return found
+
+
+async def load_sensitive_words_from_db(db) -> None:
+    from app.models import SensitiveWord
+    from sqlalchemy import select
+
+    result = await db.execute(select(SensitiveWord.word))
+    words = [row[0] for row in result.all()]
+
+    if words:
+        set_sensitive_words(words)
+    else:
+        global _cached_words, _cache_loaded
+        _cached_words = sorted(DEFAULT_SENSITIVE_WORDS, key=len, reverse=True)
+        _cache_loaded = True

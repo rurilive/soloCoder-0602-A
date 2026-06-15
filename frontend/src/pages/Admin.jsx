@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react'
-import api, { adjustUserReputation, getUserReputationLogs } from '../api'
+import api, {
+  adjustUserReputation,
+  getUserReputationLogs,
+  getSensitiveWords,
+  createSensitiveWord,
+  updateSensitiveWord,
+  deleteSensitiveWord,
+} from '../api'
 import { formatTime } from '../utils/notification'
 
 const REASON_TYPE_LABELS = {
@@ -41,6 +48,13 @@ export default function Admin() {
   const [repLogsSkip, setRepLogsSkip] = useState(0)
   const [repLogsTotal, setRepLogsTotal] = useState(0)
   const [repLogsLoading, setRepLogsLoading] = useState(false)
+  const [sensitiveWords, setSensitiveWords] = useState([])
+  const [sensitiveWordsTotal, setSensitiveWordsTotal] = useState(0)
+  const [sensitiveWordsSkip, setSensitiveWordsSkip] = useState(0)
+  const [sensitiveKeyword, setSensitiveKeyword] = useState('')
+  const [showSensitiveModal, setShowSensitiveModal] = useState(false)
+  const [editSensitiveWord, setEditSensitiveWord] = useState(null)
+  const [sensitiveForm, setSensitiveForm] = useState({ word: '', category: 'general' })
 
   useEffect(() => {
     api.get('/api/sections/').then((res) => setSections(res.data)).catch(() => {})
@@ -191,6 +205,62 @@ export default function Admin() {
     setShowSectionModal(true)
   }
 
+  const fetchSensitiveWords = async () => {
+    try {
+      const res = await getSensitiveWords(sensitiveWordsSkip, 50, sensitiveKeyword || null)
+      setSensitiveWords(res.data.items)
+      setSensitiveWordsTotal(res.data.total)
+    } catch {
+      setSensitiveWords([])
+      setSensitiveWordsTotal(0)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'sensitive') {
+      fetchSensitiveWords()
+    }
+  }, [tab, sensitiveWordsSkip, sensitiveKeyword])
+
+  const handleCreateSensitiveWord = async (e) => {
+    e.preventDefault()
+    try {
+      if (editSensitiveWord) {
+        await updateSensitiveWord(editSensitiveWord.id, sensitiveForm.word || null, sensitiveForm.category || null)
+      } else {
+        await createSensitiveWord(sensitiveForm.word, sensitiveForm.category)
+      }
+      setShowSensitiveModal(false)
+      setEditSensitiveWord(null)
+      setSensitiveForm({ word: '', category: 'general' })
+      fetchSensitiveWords()
+    } catch (err) {
+      alert('操作失败: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleEditSensitiveWord = (word) => {
+    setEditSensitiveWord(word)
+    setSensitiveForm({ word: word.word, category: word.category || 'general' })
+    setShowSensitiveModal(true)
+  }
+
+  const handleDeleteSensitiveWord = async (id) => {
+    if (!confirm('确定要删除此敏感词吗？')) return
+    try {
+      await deleteSensitiveWord(id)
+      fetchSensitiveWords()
+    } catch (err) {
+      alert('删除失败: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const openNewSensitiveWord = () => {
+    setEditSensitiveWord(null)
+    setSensitiveForm({ word: '', category: 'general' })
+    setShowSensitiveModal(true)
+  }
+
   return (
     <div className="admin-page">
       <h2>管理后台</h2>
@@ -200,6 +270,7 @@ export default function Admin() {
         <button className={`admin-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => setTab('users')}>用户管理</button>
         <button className={`admin-tab ${tab === 'reputation' ? 'active' : ''}`} onClick={() => setTab('reputation')}>声望管理</button>
         <button className={`admin-tab ${tab === 'moderators' ? 'active' : ''}`} onClick={() => setTab('moderators')}>版主管理</button>
+        <button className={`admin-tab ${tab === 'sensitive' ? 'active' : ''}`} onClick={() => setTab('sensitive')}>敏感词管理</button>
       </div>
 
       {tab === 'sections' && (
@@ -372,6 +443,102 @@ export default function Admin() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {tab === 'sensitive' && (
+        <div>
+          <div style={{ marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button className="btn btn-primary btn-sm" onClick={openNewSensitiveWord}>添加敏感词</button>
+            <input
+              className="form-control"
+              style={{ width: 250 }}
+              placeholder="搜索敏感词..."
+              value={sensitiveKeyword}
+              onChange={(e) => { setSensitiveKeyword(e.target.value); setSensitiveWordsSkip(0) }}
+            />
+            <span style={{ color: 'var(--text-light)' }}>共 {sensitiveWordsTotal} 个敏感词</span>
+          </div>
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>敏感词</th>
+                <th>分类</th>
+                <th>添加时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sensitiveWords.map((w) => (
+                <tr key={w.id}>
+                  <td>{w.id}</td>
+                  <td>
+                    <code style={{ background: 'var(--bg-light)', padding: '2px 6px', borderRadius: 4 }}>
+                      {w.word}
+                    </code>
+                  </td>
+                  <td>{w.category || '-'}</td>
+                  <td>{new Date(w.created_at).toLocaleString()}</td>
+                  <td>
+                    <div className="admin-actions">
+                      <button className="btn btn-sm btn-secondary" onClick={() => handleEditSensitiveWord(w)}>编辑</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDeleteSensitiveWord(w.id)}>删除</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {sensitiveWords.length === 0 && (
+                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-light)' }}>暂无敏感词</td></tr>
+              )}
+            </tbody>
+          </table>
+          {sensitiveWordsTotal > 0 && (
+            <div className="pagination">
+              <button disabled={sensitiveWordsSkip === 0} onClick={() => setSensitiveWordsSkip(Math.max(0, sensitiveWordsSkip - 50))}>上一页</button>
+              <span className="page-info">第 {Math.floor(sensitiveWordsSkip / 50) + 1} 页 / 共 {Math.ceil(sensitiveWordsTotal / 50)} 页</span>
+              <button disabled={sensitiveWordsSkip + 50 >= sensitiveWordsTotal} onClick={() => setSensitiveWordsSkip(sensitiveWordsSkip + 50)}>下一页</button>
+            </div>
+          )}
+
+          {showSensitiveModal && (
+            <div className="modal-overlay" onClick={() => setShowSensitiveModal(false)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <h3>{editSensitiveWord ? '编辑敏感词' : '添加敏感词'}</h3>
+                <form onSubmit={handleCreateSensitiveWord}>
+                  <div className="form-group">
+                    <label>敏感词</label>
+                    <input
+                      className="form-control"
+                      value={sensitiveForm.word}
+                      onChange={(e) => setSensitiveForm({ ...sensitiveForm, word: e.target.value })}
+                      required
+                      placeholder="请输入敏感词"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>分类</label>
+                    <select
+                      className="form-control"
+                      value={sensitiveForm.category}
+                      onChange={(e) => setSensitiveForm({ ...sensitiveForm, category: e.target.value })}
+                    >
+                      <option value="general">通用</option>
+                      <option value="politics">政治</option>
+                      <option value="violence">暴力</option>
+                      <option value="porn">色情</option>
+                      <option value="ad">广告</option>
+                      <option value="other">其他</option>
+                    </select>
+                  </div>
+                  <div className="modal-actions">
+                    <button className="btn btn-secondary" type="button" onClick={() => setShowSensitiveModal(false)}>取消</button>
+                    <button className="btn btn-primary" type="submit">{editSensitiveWord ? '保存' : '添加'}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

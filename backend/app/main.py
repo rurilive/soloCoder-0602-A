@@ -3,12 +3,13 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.auth import get_password_hash
 from app.database import Base, async_session, engine
-from app.models import User
+from app.models import SensitiveWord, User
 from app.routers import admin, auth, chat, notifications, posts, reports, sections, upload, users
+from app.utils.sensitive_words import DEFAULT_SENSITIVE_WORDS, load_sensitive_words_from_db
 
 app = FastAPI(title="Forum API", version="1.0.0")
 
@@ -51,3 +52,11 @@ async def startup():
             )
             session.add(admin_user)
             await session.commit()
+
+        count_result = await session.execute(select(func.count(SensitiveWord.id)))
+        if count_result.scalar() == 0:
+            for word in DEFAULT_SENSITIVE_WORDS:
+                session.add(SensitiveWord(word=word, category="general"))
+            await session.commit()
+
+        await load_sensitive_words_from_db(session)

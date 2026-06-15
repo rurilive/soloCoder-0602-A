@@ -10,7 +10,9 @@ from app.database import get_db
 from app.models import Notification, Post, Reply, Report, Section, User
 from app.schemas import (
     AuthorBrief,
+    PaginatedPendingReviewsResponse,
     PaginatedReportsResponse,
+    PendingReviewItem,
     ReportBatchAction,
     ReportCreate,
     ReportResponse,
@@ -20,6 +22,64 @@ from app.services.reputation import change_reputation
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 AUTO_HIDE_THRESHOLD = 3
+SENSITIVE_HIT_REPORT_THRESHOLD = 3
+
+
+async def auto_report_for_sensitive(
+    db: AsyncSession, user_id: int, target_type: str, target_id: int, hit_words: list[str]
+) -> None:
+    from sqlalchemy import and_, func, or_
+
+    pending_count = 0
+    post_result = await db.execute(
+        select(func.count(Post.id)).where(
+            Post.author_id == user_id,
+            Post.is_deleted == False,
+            Post.is_pending_review == True,
+        )
+    )
+    pending_count += post_result.scalar() or 0
+
+    reply_result = await db.execute(
+        select(func.count(Reply.id)).where(
+            Reply.author_id == user_id,
+            Reply.is_deleted == False,
+            Reply.is_pending_review == True,
+        )
+    )
+    pending_count += reply_result.scalar() or 0
+
+    if pending_count < SENSITIVE_HIT_REPORT_THRESHOLD:
+        return
+
+    admin_result = await db.execute(
+        select(User).where(User.role == "admin").limit(1)
+    )
+    admin = admin_result.scalar_one_or_none()
+    if not admin:
+        return
+
+    existing = await db.execute(
+        select(Report).where(
+            Report.reporter_id == admin.id,
+            Report.target_type == target_type,
+            Report.target_id == target_id,
+            Report.report_type == "auto_sensitive",
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+
+    reason = f"自动检测到敏感词：{', '.join(hit_words)}（用户累计{pending_count}次命中敏感词）"
+    report = Report(
+        reporter_id=admin.id,
+        target_type=target_type,
+        target_id=target_id,
+        reason=reason,
+        report_type="auto_sensitive",
+    )
+    db.add(report)
+    await db.commit()
 
 
 async def _auto_hide_if_needed(
@@ -431,3 +491,296 @@ async def batch_review_reports(
         "message": f"已处理 {len(processed_ids)} 条举报",
         "processed_count": len(processed_ids),
     }
+
+
+@router.get("/pending-review", response_model=PaginatedPendingReviewsResponse)
+async def list_pending_review_items(
+    skip: int = 0,
+    limit: int = 20,
+    target_type: str | None = None,
+    section_id: int | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await is_moderator(db, current_user):
+        raise HTTPException(status_code=403, detail="需要管理员或版主权限")
+
+    items = []
+    total = 0
+
+    if target_type is None or target_type == "post":
+        post_where = [
+            Post.is_deleted == False,
+            Post.is_pending_review == True,
+        ]
+        if section_id is not None:
+            post_where.append(Post.section_id == section_id)
+
+        post_count_result = await db.execute(
+            select(func.count(Post.id)).where(*post_where)
+        )
+        total += post_count_result.scalar() or 0
+
+    if target_type is None or target_type == "reply":
+        reply_where = [
+            Reply.is_deleted == False,
+            Reply.is_pending_review == True,
+        ]
+        if section_id is not None:
+            post_ids_stmt = select(Post.id).where(Post.section_id == section_id)
+            reply_where.append(Reply.post_id.in_(post_ids_stmt))
+
+        reply_count_result = await db.execute(
+            select(func.count(Reply.id)).where(*reply_where)
+        )
+        total += reply_count_result.scalar() or 0
+
+    if target_type is None or target_type == "post":
+        post_where = [
+            Post.is_deleted == False,
+            Post.is_pending_review == True,
+        ]
+        if section_id is not None:
+            post_where.append(Post.section_id == section_id)
+
+        post_stmt = (
+            select(Post)
+            .where(*post_where)
+            .order_by(Post.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .options(selectinload(Post.author), selectinload(Post.section))
+        )
+        post_result = await db.execute(post_stmt)
+        posts = post_result.scalars().all()
+
+        for post in posts:
+            items.append(
+                PendingReviewItem(
+                    id=post.id,
+                    target_type="post",
+                    title=post.title,
+                    content=post.content,
+                    author_id=post.author_id,
+                    author=AuthorBrief(
+                        id=post.author.id,
+                        username=post.author.username,
+                        avatar=post.author.avatar,
+                        reputation=post.author.reputation,
+                    ),
+                    section_id=post.section_id,
+                    section_name=post.section.name if post.section else None,
+                    created_at=post.created_at,
+                )
+            )
+
+    if target_type is None or target_type == "reply":
+        reply_where = [
+            Reply.is_deleted == False,
+            Reply.is_pending_review == True,
+        ]
+        if section_id is not None:
+            post_ids_stmt = select(Post.id).where(Post.section_id == section_id)
+            reply_where.append(Reply.post_id.in_(post_ids_stmt))
+
+        reply_stmt = (
+            select(Reply)
+            .where(*reply_where)
+            .order_by(Reply.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .options(
+                selectinload(Reply.author),
+                selectinload(Reply.post).selectinload(Post.section),
+            )
+        )
+        reply_result = await db.execute(reply_stmt)
+        replies = reply_result.scalars().all()
+
+        for reply in replies:
+            content_preview = reply.content[:200] + ("..." if len(reply.content) > 200 else "")
+            items.append(
+                PendingReviewItem(
+                    id=reply.id,
+                    target_type="reply",
+                    title=None,
+                    content=content_preview,
+                    author_id=reply.author_id,
+                    author=AuthorBrief(
+                        id=reply.author.id,
+                        username=reply.author.username,
+                        avatar=reply.author.avatar,
+                        reputation=reply.author.reputation,
+                    ),
+                    section_id=reply.post.section_id if reply.post else None,
+                    section_name=reply.post.section.name if reply.post and reply.post.section else None,
+                    created_at=reply.created_at,
+                )
+            )
+
+    items.sort(key=lambda x: x.created_at, reverse=True)
+    items = items[skip : skip + limit]
+
+    return PaginatedPendingReviewsResponse(
+        items=items,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post("/pending-review/{target_type}/{target_id}/approve")
+async def approve_pending_review(
+    target_type: str,
+    target_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await is_moderator(db, current_user):
+        raise HTTPException(status_code=403, detail="需要管理员或版主权限")
+
+    if target_type not in ("post", "reply"):
+        raise HTTPException(status_code=400, detail="目标类型无效")
+
+    if target_type == "post":
+        result = await db.execute(select(Post).where(Post.id == target_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(status_code=404, detail="帖子不存在")
+        if not post.is_pending_review:
+            raise HTTPException(status_code=400, detail="该帖子不在待审核状态")
+        post.is_pending_review = False
+
+        if not post.is_hidden and not post.is_deleted:
+            await change_reputation(
+                db,
+                user_id=post.author_id,
+                change=2,
+                reason=f"发布帖子《{post.title}》",
+                reason_type="create_post",
+                operator_id=current_user.id,
+                post_id=post.id,
+            )
+    else:
+        result = await db.execute(
+            select(Reply)
+            .where(Reply.id == target_id)
+            .options(selectinload(Reply.post))
+        )
+        reply = result.scalar_one_or_none()
+        if not reply:
+            raise HTTPException(status_code=404, detail="回复不存在")
+        if not reply.is_pending_review:
+            raise HTTPException(status_code=400, detail="该回复不在待审核状态")
+        reply.is_pending_review = False
+
+        if not reply.is_hidden and not reply.is_deleted:
+            await change_reputation(
+                db,
+                user_id=reply.author_id,
+                change=1,
+                reason=f"回复帖子",
+                reason_type="create_reply",
+                operator_id=current_user.id,
+                reply_id=reply.id,
+            )
+
+            if reply.post and reply.post.author_id != reply.author_id:
+                await change_reputation(
+                    db,
+                    user_id=reply.post.author_id,
+                    change=3,
+                    reason=f"你的帖子被回复",
+                    reason_type="post_replied",
+                    operator_id=current_user.id,
+                    post_id=reply.post_id,
+                    reply_id=reply.id,
+                )
+
+    await db.commit()
+    return {"message": "审核通过，内容已正常展示"}
+
+
+@router.post("/pending-review/{target_type}/{target_id}/reject")
+async def reject_pending_review(
+    target_type: str,
+    target_id: int,
+    review_note: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not await is_moderator(db, current_user):
+        raise HTTPException(status_code=403, detail="需要管理员或版主权限")
+
+    if target_type not in ("post", "reply"):
+        raise HTTPException(status_code=400, detail="目标类型无效")
+
+    if target_type == "post":
+        result = await db.execute(
+            select(Post).where(Post.id == target_id).options(selectinload(Post.author))
+        )
+        post = result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(status_code=404, detail="帖子不存在")
+        if not post.is_pending_review:
+            raise HTTPException(status_code=400, detail="该帖子不在待审核状态")
+
+        post.is_pending_review = False
+        post.is_hidden = True
+
+        author_id = post.author_id
+        content_desc = f"帖子《{post.title}》"
+
+        if post.author_id != current_user.id:
+            await change_reputation(
+                db,
+                user_id=post.author_id,
+                change=-10,
+                reason=f"发布的{content_desc}因内容违规未通过审核",
+                reason_type="review_rejected",
+                operator_id=current_user.id,
+                post_id=post.id,
+            )
+    else:
+        result = await db.execute(
+            select(Reply)
+            .where(Reply.id == target_id)
+            .options(selectinload(Reply.author), selectinload(Reply.post))
+        )
+        reply = result.scalar_one_or_none()
+        if not reply:
+            raise HTTPException(status_code=404, detail="回复不存在")
+        if not reply.is_pending_review:
+            raise HTTPException(status_code=400, detail="该回复不在待审核状态")
+
+        reply.is_pending_review = False
+        reply.is_hidden = True
+
+        author_id = reply.author_id
+        content_preview = reply.content[:50] + ("..." if len(reply.content) > 50 else "")
+        content_desc = f"回复《{content_preview}》"
+
+        if reply.author_id != current_user.id:
+            await change_reputation(
+                db,
+                user_id=reply.author_id,
+                change=-10,
+                reason=f"发布的{content_desc}因内容违规未通过审核",
+                reason_type="review_rejected",
+                operator_id=current_user.id,
+                reply_id=reply.id,
+            )
+
+    await db.commit()
+
+    notification = Notification(
+        user_id=author_id,
+        type="review_result",
+        content=f"您发布的{content_desc}因内容违规未通过审核，声望 -10",
+        post_id=target_id if target_type == "post" else None,
+        reply_id=target_id if target_type == "reply" else None,
+    )
+    db.add(notification)
+    await db.commit()
+
+    return {"message": "审核不通过，内容已隐藏并扣除声望 -10"}

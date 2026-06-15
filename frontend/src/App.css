@@ -2427,3 +2427,69 @@ textarea.form-control {
   max-width: 600px;
   width: 90%;
 }
+
+/* Pending Review */
+.pending-review-banner {
+  background: var(--warning-light);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  color: #b37400;
+}
+
+.pending-review-banner strong {
+  color: #925a00;
+  font-size: 15px;
+}
+
+.pending-review-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--warning-light);
+  color: var(--warning);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.pending-review-hint {
+  padding: 8px 0;
+}
+
+.reply-item.pending-review {
+  opacity: 0.7;
+  background: var(--warning-light);
+  border-color: var(--warning);
+}
+
+/* Review Tabs */
+.review-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.review-tab {
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-medium);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+}
+
+.review-tab:hover {
+  color: var(--text-dark);
+}
+
+.review-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}

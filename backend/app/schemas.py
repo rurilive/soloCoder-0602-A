@@ -93,6 +93,7 @@ class ReplyResponse(BaseModel):
     floor_number: int
     is_deleted: bool
     is_hidden: bool = False
+    is_pending_review: bool = False
     created_at: datetime
     children: list["ReplyResponse"] = []
 
@@ -112,6 +113,7 @@ class PostResponse(BaseModel):
     is_pinned: bool
     is_deleted: bool
     is_hidden: bool = False
+    is_pending_review: bool = False
     view_count: int
     created_at: datetime
     updated_at: datetime
@@ -359,6 +361,7 @@ class ReportResponse(BaseModel):
     target_type: str
     target_id: int
     reason: str
+    report_type: str = "user"
     status: str
     reviewer_id: int | None = None
     reviewer: AuthorBrief | None = None
@@ -410,3 +413,50 @@ class PaginatedReputationLogsResponse(BaseModel):
 class ReputationAdjust(BaseModel):
     change: int
     reason: str
+
+
+class SensitiveWordCreate(BaseModel):
+    word: str
+    category: str | None = None
+
+
+class SensitiveWordUpdate(BaseModel):
+    word: str | None = None
+    category: str | None = None
+
+
+class SensitiveWordResponse(BaseModel):
+    id: int
+    word: str
+    category: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedSensitiveWordsResponse(BaseModel):
+    items: list[SensitiveWordResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class PendingReviewItem(BaseModel):
+    id: int
+    target_type: str
+    title: str | None = None
+    content: str
+    author_id: int
+    author: AuthorBrief
+    section_id: int | None = None
+    section_name: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedPendingReviewsResponse(BaseModel):
+    items: list[PendingReviewItem]
+    total: int
+    skip: int
+    limit: int

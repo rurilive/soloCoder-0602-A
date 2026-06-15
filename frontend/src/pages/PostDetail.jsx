@@ -9,8 +9,9 @@ const PAGE_SIZE = 20
 
 function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
   const { user, isAuthenticated } = useAuth()
-  const canReply = isAuthenticated && user && !user.is_muted && !reply.is_deleted
-  const canReport = isAuthenticated && user && !reply.is_deleted && reply.author_id !== user?.id
+  const canReply = isAuthenticated && user && !user.is_muted && !reply.is_deleted && !reply.is_pending_review
+  const canReport = isAuthenticated && user && !reply.is_deleted && reply.author_id !== user?.id && !reply.is_pending_review
+  const isOwnPending = user && reply.author_id === user.id && reply.is_pending_review
 
   const handleReply = (e) => {
     e.stopPropagation()
@@ -20,7 +21,7 @@ function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
   }
 
   return (
-    <div className={`reply-item ${reply.is_deleted ? 'deleted' : ''}`}>
+    <div className={`reply-item ${reply.is_deleted ? 'deleted' : ''} ${reply.is_pending_review ? 'pending-review' : ''}`}>
       <div className="reply-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span className="reply-floor">#{reply.floor_number}楼</span>
@@ -30,6 +31,7 @@ function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
             </span>
             {reply.author?.username || '未知'}
           </span>
+          {reply.is_pending_review && <span className="pending-review-badge">审核中</span>}
         </div>
         <div className="reply-actions">
           <span className="reply-date">{new Date(reply.created_at).toLocaleString()}</span>
@@ -48,6 +50,14 @@ function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
       <div className="reply-content">
         {reply.is_deleted ? (
           <em style={{ color: 'var(--text-light)' }}>该回复已删除</em>
+        ) : reply.is_pending_review ? (
+          <div className="pending-review-hint">
+            {isOwnPending ? (
+              <em style={{ color: 'var(--warning-color)' }}>⏳ 您的回复正在审核中，仅您自己可见</em>
+            ) : (
+              <em style={{ color: 'var(--text-light)' }}>该回复正在审核中</em>
+            )}
+          </div>
         ) : (
           <MarkdownRenderer content={reply.content} />
         )}
@@ -420,14 +430,17 @@ export default function PostDetail() {
     if (!replyContent.trim()) return
     setSubmitting(true)
     try {
-      await api.post(`/api/posts/${id}/replies`, {
+      const res = await api.post(`/api/posts/${id}/replies`, {
         content: replyContent,
         parent_id: replyTo?.id || null,
       })
       setReplyContent('')
       setReplyTo(null)
-      const res = await api.get(`/api/posts/${id}`)
-      setPost(res.data)
+      if (res.data.is_pending_review) {
+        alert('您的回复已提交，正在审核中，审核通过后将正常展示')
+      }
+      const postRes = await api.get(`/api/posts/${id}`)
+      setPost(postRes.data)
       setSkip(0)
       const repliesRes = await api.get(`/api/posts/${id}/replies`, { params: { skip: 0, limit: PAGE_SIZE } })
       setReplies(repliesRes.data.items)
@@ -472,11 +485,23 @@ export default function PostDetail() {
       )}
 
       <div className="post-detail">
+        {post.is_pending_review && user && post.author_id === user.id && (
+          <div className="pending-review-banner">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '20px' }}>⏳</span>
+              <div>
+                <strong>内容审核中</strong>
+                <div style={{ fontSize: '13px', opacity: 0.9 }}>您的内容正在审核中，目前只有您自己可以看到，审核通过后将正常展示。</div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="post-detail-header">
           <div className="post-detail-title">
             {post.title}
             {post.is_pinned && <span className="pin-badge">置顶</span>}
             {post.is_deleted && <span className="deleted-badge">已删除</span>}
+            {post.is_pending_review && <span className="pending-review-badge">审核中</span>}
           </div>
           <div className="post-detail-meta">
             <span className="post-detail-author">

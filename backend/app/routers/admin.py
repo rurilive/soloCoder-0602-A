@@ -1,12 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_admin_user
 from app.database import get_db
-from app.models import Moderator, Post, User
-from app.schemas import MuteUpdate, ModeratorCreate, ModeratorResponse, ReputationAdjust, UserResponse
+from app.models import Moderator, Post, SensitiveWord, User
+from app.schemas import (
+    MuteUpdate,
+    ModeratorCreate,
+    ModeratorResponse,
+    PaginatedSensitiveWordsResponse,
+    ReputationAdjust,
+    SensitiveWordCreate,
+    SensitiveWordResponse,
+    SensitiveWordUpdate,
+    UserResponse,
+)
 from app.services.reputation import RESTRICTED_THRESHOLD, change_reputation
+from app.utils.sensitive_words import load_sensitive_words_from_db
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -155,3 +166,116 @@ async def force_delete_post(
     await db.delete(post)
     await db.commit()
     return {"message": "帖子已永久删除"}
+
+
+@router.get("/sensitive-words", response_model=PaginatedSensitiveWordsResponse)
+async def list_sensitive_words(
+    skip: int = 0,
+    limit: int = 50,
+    keyword: str | None = None,
+    category: str | None = None,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    where_conditions = []
+    if keyword:
+        where_conditions.append(SensitiveWord.word.ilike(f"%{keyword}%"))
+    if category:
+        where_conditions.append(SensitiveWord.category == category)
+
+    count_result = await db.execute(
+        select(func.count(SensitiveWord.id)).where(*where_conditions)
+    )
+    total = count_result.scalar() or 0
+
+    stmt = (
+        select(SensitiveWord)
+        .where(*where_conditions)
+        .order_by(SensitiveWord.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    words = result.scalars().all()
+
+    return PaginatedSensitiveWordsResponse(
+        items=[SensitiveWordResponse.model_validate(w) for w in words],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post("/sensitive-words", response_model=SensitiveWordResponse, status_code=201)
+async def create_sensitive_word(
+    word_data: SensitiveWordCreate,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.execute(
+        select(SensitiveWord).where(SensitiveWord.word == word_data.word)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="该敏感词已存在")
+
+    word = SensitiveWord(
+        word=word_data.word,
+        category=word_data.category or "general",
+    )
+    db.add(word)
+    await db.commit()
+    await db.refresh(word)
+
+    await load_sensitive_words_from_db(db)
+
+    return SensitiveWordResponse.model_validate(word)
+
+
+@router.put("/sensitive-words/{word_id}", response_model=SensitiveWordResponse)
+async def update_sensitive_word(
+    word_id: int,
+    word_data: SensitiveWordUpdate,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(SensitiveWord).where(SensitiveWord.id == word_id))
+    word = result.scalar_one_or_none()
+    if not word:
+        raise HTTPException(status_code=404, detail="敏感词不存在")
+
+    if word_data.word is not None and word_data.word != word.word:
+        existing = await db.execute(
+            select(SensitiveWord).where(SensitiveWord.word == word_data.word)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="该敏感词已存在")
+        word.word = word_data.word
+
+    if word_data.category is not None:
+        word.category = word_data.category
+
+    await db.commit()
+    await db.refresh(word)
+
+    await load_sensitive_words_from_db(db)
+
+    return SensitiveWordResponse.model_validate(word)
+
+
+@router.delete("/sensitive-words/{word_id}")
+async def delete_sensitive_word(
+    word_id: int,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(SensitiveWord).where(SensitiveWord.id == word_id))
+    word = result.scalar_one_or_none()
+    if not word:
+        raise HTTPException(status_code=404, detail="敏感词不存在")
+
+    await db.delete(word)
+    await db.commit()
+
+    await load_sensitive_words_from_db(db)
+
+    return {"message": "敏感词已删除"}

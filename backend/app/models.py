@@ -48,6 +48,7 @@ class Post(Base):
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_pending_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -68,6 +69,7 @@ class Reply(Base):
     floor_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_pending_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     post: Mapped["Post"] = relationship("Post", back_populates="replies")
@@ -208,6 +210,7 @@ class Report(Base):
     target_type: Mapped[str] = mapped_column(String(10), nullable=False)
     target_id: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    report_type: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     reviewer_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -235,3 +238,12 @@ class ReputationLog(Base):
     operator: Mapped["User | None"] = relationship("User", foreign_keys=[operator_id], lazy="selectin")
     post: Mapped["Post | None"] = relationship("Post", lazy="selectin")
     reply: Mapped["Reply | None"] = relationship("Reply", lazy="selectin")
+
+
+class SensitiveWord(Base):
+    __tablename__ = "sensitive_words"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    word: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

@@ -84,6 +84,27 @@ export const reviewReport = (reportId, action, reviewNote = null) =>
 export const batchReviewReports = (reportIds, action, reviewNote = null) =>
   api.post('/api/reports/batch', { report_ids: reportIds, action, review_note: reviewNote })
 
+export const getPendingReviewItems = (skip = 0, limit = 20, targetType = null, sectionId = null) =>
+  api.get('/api/reports/pending-review', { params: { skip, limit, target_type: targetType, section_id: sectionId } })
+
+export const approvePendingReview = (targetType, targetId) =>
+  api.post(`/api/reports/pending-review/${targetType}/${targetId}/approve`)
+
+export const rejectPendingReview = (targetType, targetId, reviewNote = null) =>
+  api.post(`/api/reports/pending-review/${targetType}/${targetId}/reject`, null, { params: { review_note: reviewNote } })
+
+export const getSensitiveWords = (skip = 0, limit = 50, keyword = null, category = null) =>
+  api.get('/api/admin/sensitive-words', { params: { skip, limit, keyword, category } })
+
+export const createSensitiveWord = (word, category = 'general') =>
+  api.post('/api/admin/sensitive-words', { word, category })
+
+export const updateSensitiveWord = (wordId, word = null, category = null) =>
+  api.put(`/api/admin/sensitive-words/${wordId}`, { word, category })
+
+export const deleteSensitiveWord = (wordId) =>
+  api.delete(`/api/admin/sensitive-words/${wordId}`)
+
 export const getMyReputationLogs = (skip = 0, limit = 20) =>
   api.get('/api/users/me/reputation-logs', { params: { skip, limit } })
 
