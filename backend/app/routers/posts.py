@@ -1019,7 +1019,7 @@ async def search_posts(
 
     keyword = f"%{q.strip()}%" if q.strip() else None
 
-    is_mod = await is_moderator(db, current_user) if current_user is not None else False
+    is_mod = False if current_user is None else await is_moderator(db, current_user)
 
     base_where = [
         Post.is_deleted == False,
