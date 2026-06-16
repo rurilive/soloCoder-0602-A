@@ -3,7 +3,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
@@ -169,7 +169,6 @@ async def list_posts(
 
     if not is_mod:
         if current_user is not None:
-            from sqlalchemy import or_
             base_where.append(or_(Post.is_hidden == False, Post.author_id == current_user.id))
             base_where.append(or_(Post.is_pending_review == False, Post.author_id == current_user.id))
         else:
@@ -951,7 +950,6 @@ async def list_replies(
     if not is_mod:
         root_where.append(Reply.is_hidden == False)
         if current_user is not None:
-            from sqlalchemy import or_
             root_where.append(or_(Reply.is_pending_review == False, Reply.author_id == current_user.id))
         else:
             root_where.append(Reply.is_pending_review == False)
@@ -980,7 +978,6 @@ async def list_replies(
     if not is_mod:
         all_where.append(Reply.is_hidden == False)
         if current_user is not None:
-            from sqlalchemy import or_
             all_where.append(or_(Reply.is_pending_review == False, Reply.author_id == current_user.id))
         else:
             all_where.append(Reply.is_pending_review == False)
@@ -1022,7 +1019,7 @@ async def search_posts(
 
     keyword = f"%{q.strip()}%" if q.strip() else None
 
-    is_mod = await is_moderator(db, current_user)
+    is_mod = await is_moderator(db, current_user) if current_user is not None else False
 
     base_where = [
         Post.is_deleted == False,
@@ -1030,7 +1027,6 @@ async def search_posts(
 
     if not is_mod:
         if current_user is not None:
-            from sqlalchemy import or_
             base_where.append(or_(Post.is_hidden == False, Post.author_id == current_user.id))
             base_where.append(or_(Post.is_pending_review == False, Post.author_id == current_user.id))
         else:
