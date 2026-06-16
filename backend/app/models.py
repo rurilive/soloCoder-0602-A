@@ -249,6 +249,21 @@ class SensitiveWord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class Follow(Base):
+    __tablename__ = "follows"
+    __table_args__ = (
+        UniqueConstraint("follower_id", "followee_id", name="uq_follow_follower_followee"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    follower_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    followee_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    follower: Mapped["User"] = relationship("User", foreign_keys=[follower_id], lazy="selectin")
+    followee: Mapped["User"] = relationship("User", foreign_keys=[followee_id], lazy="selectin")
+
+
 class Reward(Base):
     __tablename__ = "rewards"
     __table_args__ = (

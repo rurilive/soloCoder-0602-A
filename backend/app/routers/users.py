@@ -5,7 +5,7 @@ from sqlalchemy.orm import contains_eager, selectinload
 
 from app.auth import get_admin_user, get_current_user
 from app.database import get_db
-from app.models import Favorite, Post, Reply, ReputationLog, Section, User
+from app.models import Favorite, Follow, Post, Reply, ReputationLog, Section, User
 from app.schemas import (
     AuthorBrief,
     FavoritePostItem,
@@ -20,9 +20,34 @@ from app.schemas import (
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
+async def _build_user_response(user: User, db: AsyncSession) -> UserResponse:
+    fc_result = await db.execute(
+        select(func.count(Follow.id)).where(Follow.follower_id == user.id)
+    )
+    follow_count = fc_result.scalar() or 0
+
+    frc_result = await db.execute(
+        select(func.count(Follow.id)).where(Follow.followee_id == user.id)
+    )
+    follower_count = frc_result.scalar() or 0
+
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        avatar=user.avatar,
+        role=user.role,
+        is_muted=user.is_muted,
+        reputation=user.reputation,
+        follow_count=follow_count,
+        follower_count=follower_count,
+        created_at=user.created_at,
+    )
+
+
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
+async def get_me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _build_user_response(current_user, db)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -44,7 +69,7 @@ async def update_me(
 
     await db.commit()
     await db.refresh(current_user)
-    return current_user
+    return await _build_user_response(current_user, db)
 
 
 @router.get("/me/favorites", response_model=PaginatedFavoritesResponse)
@@ -151,7 +176,11 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).offset(skip).limit(limit))
-    return result.scalars().all()
+    users = result.scalars().all()
+    responses = []
+    for u in users:
+        responses.append(await _build_user_response(u, db))
+    return responses
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -160,7 +189,7 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    return user
+    return await _build_user_response(user, db)
 
 
 @router.get("/me/reputation-logs", response_model=PaginatedReputationLogsResponse)

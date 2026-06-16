@@ -126,4 +126,22 @@ export const getMyGivenRewards = (skip = 0, limit = 20) =>
 export const getMyReceivedRewards = (skip = 0, limit = 20) =>
   api.get('/api/me/rewards/received', { params: { skip, limit } })
 
+export const followUser = (userId) =>
+  api.post(`/api/users/${userId}/follow`)
+
+export const unfollowUser = (userId) =>
+  api.delete(`/api/users/${userId}/follow`)
+
+export const checkFollowing = (userId) =>
+  api.get(`/api/users/${userId}/is-following`)
+
+export const getFollowing = (userId, skip = 0, limit = 20) =>
+  api.get(`/api/users/${userId}/following`, { params: { skip, limit } })
+
+export const getFollowers = (userId, skip = 0, limit = 20) =>
+  api.get(`/api/users/${userId}/followers`, { params: { skip, limit } })
+
+export const getFeed = (cursor = null, limit = 20) =>
+  api.get('/api/feed', { params: { cursor, limit } })
+
 export default api

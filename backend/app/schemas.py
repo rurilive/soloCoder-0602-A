@@ -31,6 +31,8 @@ class UserResponse(BaseModel):
     role: str
     is_muted: bool
     reputation: int
+    follow_count: int = 0
+    follower_count: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -488,3 +490,56 @@ class PostRewardInfo(BaseModel):
     reward_count: int = 0
     is_rewarded: bool = False
     rewarders: list[AuthorBrief] = []
+
+
+class FollowUserItem(BaseModel):
+    id: int
+    username: str
+    avatar: str | None = None
+    reputation: int = 0
+    is_following: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class FollowListResponse(BaseModel):
+    items: list[FollowUserItem]
+    total: int
+
+
+class FeedPostItem(BaseModel):
+    activity_type: str = "post"
+    id: int
+    title: str
+    content_summary: str
+    author: AuthorBrief
+    section: SectionBrief
+    reply_count: int = 0
+    favorite_count: int = 0
+    reward_count: int = 0
+    created_at: datetime
+    cursor: str
+
+
+class FeedReplyItem(BaseModel):
+    activity_type: str = "reply"
+    id: int
+    content_summary: str
+    author: AuthorBrief
+    section: SectionBrief
+    reply_count: int = 0
+    favorite_count: int = 0
+    reward_count: int = 0
+    created_at: datetime
+    cursor: str
+    original_post_id: int
+    original_post_title: str
+
+
+FeedItem = FeedPostItem | FeedReplyItem
+
+
+class FeedResponse(BaseModel):
+    items: list[FeedItem]
+    next_cursor: str | None = None
+    has_more: bool = False

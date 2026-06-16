@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import api, { getMyReputationLogs, getMyGivenRewards, getMyReceivedRewards } from '../api'
+import api, { getMyReputationLogs, getMyGivenRewards, getMyReceivedRewards, getFollowing, getFollowers, followUser, unfollowUser } from '../api'
 import { formatTime } from '../utils/notification'
 
 const PAGE_SIZE = 20
@@ -28,6 +28,99 @@ function getRoleLabel(role) {
   }
 }
 
+function FollowListModal({ title, userId, type, onClose, onFollowChange }) {
+  const [items, setItems] = useState([])
+  const [total, setTotal] = useState(0)
+  const [skip, setSkip] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const { user: currentUser, fetchUser } = useAuth()
+
+  useEffect(() => {
+    loadItems(0)
+  }, [userId, type])
+
+  const loadItems = async (s) => {
+    setLoading(true)
+    try {
+      const fetchFn = type === 'following' ? getFollowing : getFollowers
+      const res = await fetchFn(userId, s, PAGE_SIZE)
+      setItems(res.data.items)
+      setTotal(res.data.total)
+      setSkip(s)
+    } catch {
+      setItems([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleFollowToggle = async (targetId, isFollowing) => {
+    try {
+      if (isFollowing) {
+        await unfollowUser(targetId)
+      } else {
+        await followUser(targetId)
+      }
+      loadItems(skip)
+      if (onFollowChange) onFollowChange()
+    } catch (err) {
+      alert(err.response?.data?.detail || '操作失败')
+    }
+  }
+
+  const hasMore = skip + PAGE_SIZE < total
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>{title} ({total})</h3>
+          <button className="cancel-reply-btn" onClick={onClose} style={{ fontSize: 18 }}>✕</button>
+        </div>
+        {loading ? (
+          <div className="loading">加载中...</div>
+        ) : items.length === 0 ? (
+          <div className="empty-state"><p>暂无数据</p></div>
+        ) : (
+          <>
+            <div className="follow-list">
+              {items.map((u) => (
+                <div key={u.id} className="follow-list-item">
+                  <div className="follow-list-user">
+                    <span className="avatar avatar-sm">
+                      {u.avatar ? <img src={u.avatar} alt="" /> : u.username?.[0] || '?'}
+                    </span>
+                    <span className="follow-list-name">{u.username}</span>
+                    <span className="follow-list-rep" style={{ fontSize: 12, color: 'var(--text-light)' }}>
+                      ⭐ {u.reputation}
+                    </span>
+                  </div>
+                  {currentUser && u.id !== currentUser.id && (
+                    <button
+                      className={`btn btn-sm ${u.is_following ? 'btn-secondary' : 'btn-primary'}`}
+                      onClick={() => handleFollowToggle(u.id, u.is_following)}
+                    >
+                      {u.is_following ? '已关注' : '关注'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {total > PAGE_SIZE && (
+              <div className="pagination" style={{ marginTop: 12 }}>
+                <button disabled={skip === 0} onClick={() => loadItems(Math.max(0, skip - PAGE_SIZE))}>上一页</button>
+                <span className="page-info">第 {Math.floor(skip / PAGE_SIZE) + 1} 页</span>
+                <button disabled={!hasMore} onClick={() => loadItems(skip + PAGE_SIZE)}>下一页</button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Profile() {
   const { user, fetchUser } = useAuth()
   const navigate = useNavigate()
@@ -52,6 +145,7 @@ export default function Profile() {
   const [receivedSkip, setReceivedSkip] = useState(0)
   const [receivedTotal, setReceivedTotal] = useState(0)
   const [rewardLoading, setRewardLoading] = useState(false)
+  const [followModal, setFollowModal] = useState(null)
 
   useEffect(() => {
     if (activeTab === 'favorites') {
@@ -149,6 +243,10 @@ export default function Profile() {
     }
   }
 
+  const handleFollowModalChange = () => {
+    fetchUser()
+  }
+
   if (!user) return null
 
   const displayAvatar = avatar || user.avatar
@@ -169,9 +267,27 @@ export default function Profile() {
           <div className="profile-reputation">
             ⭐ 声望: <span className={user.reputation >= 0 ? 'rep-positive' : 'rep-negative'}>{user.reputation}</span>
           </div>
+          <div className="profile-follow-stats">
+            <span className="profile-follow-stat" onClick={() => setFollowModal('following')}>
+              <strong>{user.follow_count}</strong> 关注
+            </span>
+            <span className="profile-follow-stat" onClick={() => setFollowModal('followers')}>
+              <strong>{user.follower_count}</strong> 粉丝
+            </span>
+          </div>
           <div className="profile-date">注册于: {new Date(user.created_at).toLocaleDateString()}</div>
         </div>
       </div>
+
+      {followModal && (
+        <FollowListModal
+          title={followModal === 'following' ? '关注列表' : '粉丝列表'}
+          userId={user.id}
+          type={followModal}
+          onClose={() => { setFollowModal(null); fetchUser() }}
+          onFollowChange={handleFollowModalChange}
+        />
+      )}
 
       <div className="profile-tabs">
         <button
