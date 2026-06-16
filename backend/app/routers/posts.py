@@ -1019,16 +1019,15 @@ async def search_posts(
     if len(q) > 100:
         raise HTTPException(status_code=400, detail="搜索关键词不能超过100个字符")
 
-    if not q.strip():
-        return PaginatedResponse(items=[], total=0, skip=skip, limit=limit)
-
-    keyword = f"%{q.strip()}%"
+    keyword = f"%{q.strip()}%" if q.strip() else None
 
     base_where = [
         Post.is_deleted == False,
         Post.is_hidden == False,
-        (Post.title.ilike(keyword) | Post.content.ilike(keyword)),
+        Post.is_pending_review == False,
     ]
+    if keyword is not None:
+        base_where.append(Post.title.ilike(keyword) | Post.content.ilike(keyword))
     if section_id is not None:
         base_where.append(Post.section_id == section_id)
 

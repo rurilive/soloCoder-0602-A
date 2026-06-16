@@ -6,7 +6,7 @@ from sqlalchemy import func, select, union_all, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_optional_current_user
 from app.database import get_db
 from app.models import Favorite, Follow, Post, Reply, Reward, Section, User
 from app.schemas import (
@@ -77,7 +77,7 @@ async def get_following(
     user_id: int,
     skip: int = 0,
     limit: int = 20,
-    current_user: User | None = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if skip < 0:
@@ -130,7 +130,7 @@ async def get_followers(
     user_id: int,
     skip: int = 0,
     limit: int = 20,
-    current_user: User | None = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if skip < 0:

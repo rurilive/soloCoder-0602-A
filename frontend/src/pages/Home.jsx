@@ -72,7 +72,7 @@ export default function Home() {
   const fetchLatestPosts = async () => {
     setLatestLoading(true)
     try {
-      const res = await api.get('/api/posts/search', { params: { q: ' ', skip: 0, limit: PAGE_SIZE } })
+      const res = await api.get('/api/posts/search', { params: { q: '', skip: 0, limit: PAGE_SIZE } })
       setLatestPosts(res.data.items || [])
     } catch {
       setLatestPosts([])
@@ -187,7 +187,7 @@ export default function Home() {
                       {post.author?.avatar ? <img src={post.author.avatar} alt="" /> : post.author?.username?.[0] || '?'}
                     </span>
                     <span className="feed-author-name">{post.author?.username || '未知'}</span>
-                    <span className="section-tag">{post.section?.name || '未知板块'}</span>
+                    {post.section && <span className="section-tag">{post.section.name}</span>}
                   </div>
                   <span className="feed-card-time">{formatTime(post.created_at)}</span>
                 </div>
@@ -199,6 +199,7 @@ export default function Home() {
                 )}
                 <div className="feed-card-stats">
                   <span>💬 {post.reply_count ?? 0}</span>
+                  <span>👁 {post.view_count ?? 0}</span>
                 </div>
               </div>
             ))
