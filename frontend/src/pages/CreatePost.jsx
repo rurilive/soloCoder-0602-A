@@ -16,6 +16,9 @@ export default function CreatePost() {
   const [pollIsMulti, setPollIsMulti] = useState(false)
   const [pollMaxChoices, setPollMaxChoices] = useState(2)
   const [pollOptions, setPollOptions] = useState(['', ''])
+  const [createdPostId, setCreatedPostId] = useState(null)
+  const [pollError, setPollError] = useState('')
+  const [pollRetrying, setPollRetrying] = useState(false)
 
   const addPollOption = () => {
     if (pollOptions.length >= 20) return
@@ -31,6 +34,35 @@ export default function CreatePost() {
     const updated = [...pollOptions]
     updated[index] = value
     setPollOptions(updated)
+  }
+
+  const tryCreatePoll = async (postId) => {
+    const filledOptions = pollOptions.filter((o) => o.trim())
+    try {
+      await createPoll(postId, {
+        is_multi: pollIsMulti,
+        max_choices: pollIsMulti ? pollMaxChoices : 1,
+        options: filledOptions,
+      })
+      return { success: true }
+    } catch (pollErr) {
+      return {
+        success: false,
+        message: pollErr.response?.data?.detail || '创建投票失败',
+      }
+    }
+  }
+
+  const goToPost = (postId, postData) => {
+    if (postData?.is_pending_review) {
+      alert('您的帖子已提交，正在审核中，审核通过后将正常展示。您可以在"我的帖子"中查看。')
+      navigate('/profile')
+    } else if (postData?.is_scheduled) {
+      alert('定时帖子已创建，将在指定时间自动发布。')
+      navigate(`/post/${postId}`)
+    } else {
+      navigate(`/post/${postId}`)
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -65,32 +97,39 @@ export default function CreatePost() {
       const postId = res.data.id
 
       if (hasPoll) {
-        const filledOptions = pollOptions.filter((o) => o.trim())
-        try {
-          await createPoll(postId, {
-            is_multi: pollIsMulti,
-            max_choices: pollIsMulti ? pollMaxChoices : 1,
-            options: filledOptions,
-          })
-        } catch (pollErr) {
-          console.error('创建投票失败:', pollErr)
+        const pollResult = await tryCreatePoll(postId)
+        if (!pollResult.success) {
+          setCreatedPostId(postId)
+          setPollError(pollResult.message)
+          setLoading(false)
+          return
         }
       }
 
-      if (res.data.is_pending_review) {
-        alert('您的帖子已提交，正在审核中，审核通过后将正常展示。您可以在"我的帖子"中查看。')
-        navigate('/profile')
-      } else if (res.data.is_scheduled) {
-        alert('定时帖子已创建，将在指定时间自动发布。')
-        navigate(`/post/${postId}`)
-      } else {
-        navigate(`/post/${postId}`)
-      }
+      goToPost(postId, res.data)
     } catch (err) {
       setError(err.response?.data?.detail || '发布失败')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleRetryPoll = async () => {
+    if (!createdPostId) return
+    setPollRetrying(true)
+    setPollError('')
+    const result = await tryCreatePoll(createdPostId)
+    setPollRetrying(false)
+    if (result.success) {
+      goToPost(createdPostId, { is_pending_review: false, is_scheduled: isScheduled })
+    } else {
+      setPollError(result.message)
+    }
+  }
+
+  const handleSkipPoll = () => {
+    if (!createdPostId) return
+    goToPost(createdPostId, { is_pending_review: false, is_scheduled: isScheduled })
   }
 
   const getMinDatetime = () => {
@@ -103,6 +142,22 @@ export default function CreatePost() {
     <div className="create-post-page">
       <h2>发布新帖</h2>
       {error && <div className="alert alert-danger">{error}</div>}
+      {createdPostId && pollError && (
+        <div className="alert alert-warning poll-failed-alert">
+          <div style={{ marginBottom: 8 }}>
+            <strong>帖子已发布，但投票创建失败：</strong>
+            {pollError}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm btn-primary" onClick={handleRetryPoll} disabled={pollRetrying}>
+              {pollRetrying ? '重试中...' : '重试创建投票'}
+            </button>
+            <button className="btn btn-sm btn-secondary" onClick={handleSkipPoll}>
+              跳过，直接查看帖子
+            </button>
+          </div>
+        </div>
+      )}
       <div className="card">
         <form onSubmit={handleSubmit}>
           <div className="form-group">

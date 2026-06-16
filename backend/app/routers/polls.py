@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,10 +12,10 @@ router = APIRouter(prefix="/api", tags=["polls"])
 
 
 async def _build_poll_response(db: AsyncSession, poll: Poll, current_user: User | None = None) -> PollResponse:
-    total_votes_result = await db.execute(
-        select(func.count(PollVote.id)).where(PollVote.poll_id == poll.id)
+    total_voters_result = await db.execute(
+        select(func.count(PollVote.user_id.distinct())).where(PollVote.poll_id == poll.id)
     )
-    total_votes = total_votes_result.scalar() or 0
+    total_votes = total_voters_result.scalar() or 0
 
     has_voted = False
     voted_option_ids: list[int] = []
@@ -31,8 +31,9 @@ async def _build_poll_response(db: AsyncSession, poll: Poll, current_user: User 
         has_voted = len(voted_option_ids) > 0
 
     options = []
+    total_option_votes = sum(opt.vote_count for opt in poll.options)
     for opt in poll.options:
-        percentage = (opt.vote_count / total_votes * 100) if total_votes > 0 else 0.0
+        percentage = (opt.vote_count / total_option_votes * 100) if total_option_votes > 0 else 0.0
         options.append(
             PollOptionResponse(
                 id=opt.id,
@@ -181,9 +182,14 @@ async def vote_poll(
         )
         db.add(vote)
 
-        option_result = await db.execute(select(PollOption).where(PollOption.id == oid))
-        option = option_result.scalar_one()
-        option.vote_count += 1
+    await db.flush()
+
+    for oid in vote_data.option_ids:
+        await db.execute(
+            update(PollOption)
+            .where(PollOption.id == oid)
+            .values(vote_count=PollOption.vote_count + 1)
+        )
 
     await db.commit()
 
