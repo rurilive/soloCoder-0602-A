@@ -193,6 +193,8 @@ async def vote_poll(
 
     await db.commit()
 
+    await db.expire_all()
+
     result = await db.execute(
         select(Poll).where(Poll.id == poll.id).options(
             selectinload(Poll.options),

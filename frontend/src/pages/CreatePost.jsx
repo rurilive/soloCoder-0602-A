@@ -17,6 +17,7 @@ export default function CreatePost() {
   const [pollMaxChoices, setPollMaxChoices] = useState(2)
   const [pollOptions, setPollOptions] = useState(['', ''])
   const [createdPostId, setCreatedPostId] = useState(null)
+  const [createdPostData, setCreatedPostData] = useState(null)
   const [pollError, setPollError] = useState('')
   const [pollRetrying, setPollRetrying] = useState(false)
 
@@ -100,6 +101,7 @@ export default function CreatePost() {
         const pollResult = await tryCreatePoll(postId)
         if (!pollResult.success) {
           setCreatedPostId(postId)
+          setCreatedPostData(res.data)
           setPollError(pollResult.message)
           setLoading(false)
           return
@@ -121,7 +123,7 @@ export default function CreatePost() {
     const result = await tryCreatePoll(createdPostId)
     setPollRetrying(false)
     if (result.success) {
-      goToPost(createdPostId, { is_pending_review: false, is_scheduled: isScheduled })
+      goToPost(createdPostId, createdPostData)
     } else {
       setPollError(result.message)
     }
@@ -129,7 +131,7 @@ export default function CreatePost() {
 
   const handleSkipPoll = () => {
     if (!createdPostId) return
-    goToPost(createdPostId, { is_pending_review: false, is_scheduled: isScheduled })
+    goToPost(createdPostId, createdPostData)
   }
 
   const getMinDatetime = () => {
