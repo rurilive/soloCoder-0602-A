@@ -182,7 +182,6 @@ async def list_posts(
             base_where.append(Post.scheduled_at.is_(None))
     else:
         base_where.append(Post.is_hidden == False)
-        base_where.append(or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id))
 
     stmt = (
         select(Post)
@@ -1099,7 +1098,6 @@ async def search_posts(
             base_where.append(Post.scheduled_at.is_(None))
     else:
         base_where.append(Post.is_hidden == False)
-        base_where.append(or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id))
 
     if keyword is not None:
         base_where.append(Post.title.ilike(keyword) | Post.content.ilike(keyword))

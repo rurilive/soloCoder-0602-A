@@ -97,7 +97,7 @@ async def _publish_scheduled_posts():
                         db,
                         user_id=post.author_id,
                         change=2,
-                        reason=f"定时帖子《{post.title}》已发布",
+                        reason=f"发布帖子《{post.title}》",
                         reason_type="create_post",
                         post_id=post.id,
                     )
