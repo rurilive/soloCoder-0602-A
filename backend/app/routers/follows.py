@@ -2,7 +2,7 @@ import base64
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, union_all, literal_column
+from sqlalchemy import func, or_, select, union_all, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -266,7 +266,7 @@ async def get_feed(
             Post.is_deleted == False,
             Post.is_hidden == False,
             Post.is_pending_review == False,
-            Post.scheduled_at.is_(None),
+            or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id),
         )
     )
 

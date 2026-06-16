@@ -182,7 +182,7 @@ async def list_posts(
             base_where.append(Post.scheduled_at.is_(None))
     else:
         base_where.append(Post.is_hidden == False)
-        base_where.append(Post.scheduled_at.is_(None))
+        base_where.append(or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id))
 
     stmt = (
         select(Post)
@@ -452,7 +452,19 @@ async def update_post(
     if post_data.scheduled_at != "UNCHANGED":
         if post_data.scheduled_at is not None and post_data.scheduled_at <= datetime.utcnow():
             raise HTTPException(status_code=400, detail="定时发布时间必须为未来时间")
+        was_scheduled = _is_scheduled(post)
         post.scheduled_at = post_data.scheduled_at
+        if was_scheduled and post_data.scheduled_at is None and not post.is_pending_review:
+            await change_reputation(
+                db,
+                user_id=current_user.id,
+                change=2,
+                reason=f"发布帖子《{post.title}》",
+                reason_type="create_post",
+                post_id=post.id,
+            )
+            await db.flush()
+            await create_mentions_and_notifications(db, post, current_user, post.content)
 
     if post_data.title is not None or post_data.content is not None:
         max_version_result = await db.execute(
@@ -1087,7 +1099,7 @@ async def search_posts(
             base_where.append(Post.scheduled_at.is_(None))
     else:
         base_where.append(Post.is_hidden == False)
-        base_where.append(Post.scheduled_at.is_(None))
+        base_where.append(or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id))
 
     if keyword is not None:
         base_where.append(Post.title.ilike(keyword) | Post.content.ilike(keyword))
