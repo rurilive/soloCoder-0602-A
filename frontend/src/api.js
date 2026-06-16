@@ -144,4 +144,13 @@ export const getFollowers = (userId, skip = 0, limit = 20) =>
 export const getFeed = (cursor = null, limit = 20) =>
   api.get('/api/feed', { params: { cursor, limit } })
 
+export const getPoll = (postId) =>
+  api.get(`/api/posts/${postId}/poll`)
+
+export const createPoll = (postId, data) =>
+  api.post(`/api/posts/${postId}/poll`, data)
+
+export const votePoll = (postId, optionIds) =>
+  api.post(`/api/posts/${postId}/poll/vote`, { option_ids: optionIds })
+
 export default api

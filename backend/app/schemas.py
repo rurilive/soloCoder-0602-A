@@ -551,3 +551,40 @@ class FeedResponse(BaseModel):
     items: list[FeedItem]
     next_cursor: str | None = None
     has_more: bool = False
+
+
+class PollOptionCreate(BaseModel):
+    content: str
+
+
+class PollCreate(BaseModel):
+    is_multi: bool = False
+    max_choices: int = 1
+    options: list[str]
+
+
+class PollOptionResponse(BaseModel):
+    id: int
+    content: str
+    vote_count: int = 0
+    percentage: float = 0.0
+
+    model_config = {"from_attributes": True}
+
+
+class PollResponse(BaseModel):
+    id: int
+    post_id: int
+    is_multi: bool
+    max_choices: int
+    total_votes: int = 0
+    has_voted: bool = False
+    voted_option_ids: list[int] = []
+    options: list[PollOptionResponse] = []
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PollVoteCreate(BaseModel):
+    option_ids: list[int]

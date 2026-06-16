@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import api from '../api'
+import api, { createPoll } from '../api'
 import MarkdownEditor from '../components/MarkdownEditor'
 
 export default function CreatePost() {
@@ -12,6 +12,26 @@ export default function CreatePost() {
   const [error, setError] = useState('')
   const [isScheduled, setIsScheduled] = useState(false)
   const [scheduledAt, setScheduledAt] = useState('')
+  const [hasPoll, setHasPoll] = useState(false)
+  const [pollIsMulti, setPollIsMulti] = useState(false)
+  const [pollMaxChoices, setPollMaxChoices] = useState(2)
+  const [pollOptions, setPollOptions] = useState(['', ''])
+
+  const addPollOption = () => {
+    if (pollOptions.length >= 20) return
+    setPollOptions([...pollOptions, ''])
+  }
+
+  const removePollOption = (index) => {
+    if (pollOptions.length <= 2) return
+    setPollOptions(pollOptions.filter((_, i) => i !== index))
+  }
+
+  const updatePollOption = (index, value) => {
+    const updated = [...pollOptions]
+    updated[index] = value
+    setPollOptions(updated)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -27,6 +47,13 @@ export default function CreatePost() {
       setError('定时发布时间必须为未来时间')
       return
     }
+    if (hasPoll) {
+      const filledOptions = pollOptions.filter((o) => o.trim())
+      if (filledOptions.length < 2) {
+        setError('投票至少需要2个非空选项')
+        return
+      }
+    }
     setLoading(true)
     setError('')
     try {
@@ -35,14 +62,29 @@ export default function CreatePost() {
         payload.scheduled_at = new Date(scheduledAt).toISOString()
       }
       const res = await api.post(`/api/sections/${sectionId}/posts`, payload)
+      const postId = res.data.id
+
+      if (hasPoll) {
+        const filledOptions = pollOptions.filter((o) => o.trim())
+        try {
+          await createPoll(postId, {
+            is_multi: pollIsMulti,
+            max_choices: pollIsMulti ? pollMaxChoices : 1,
+            options: filledOptions,
+          })
+        } catch (pollErr) {
+          console.error('创建投票失败:', pollErr)
+        }
+      }
+
       if (res.data.is_pending_review) {
         alert('您的帖子已提交，正在审核中，审核通过后将正常展示。您可以在"我的帖子"中查看。')
         navigate('/profile')
       } else if (res.data.is_scheduled) {
         alert('定时帖子已创建，将在指定时间自动发布。')
-        navigate(`/post/${res.data.id}`)
+        navigate(`/post/${postId}`)
       } else {
-        navigate(`/post/${res.data.id}`)
+        navigate(`/post/${postId}`)
       }
     } catch (err) {
       setError(err.response?.data?.detail || '发布失败')
@@ -97,6 +139,90 @@ export default function CreatePost() {
                 <small style={{ color: 'var(--text-light)', marginTop: 4, display: 'block' }}>
                   帖子将在指定时间后才对其他用户可见
                 </small>
+              </div>
+            )}
+          </div>
+          <div className="form-group poll-create-group">
+            <label className="scheduled-publish-label">
+              <input
+                type="checkbox"
+                checked={hasPoll}
+                onChange={(e) => setHasPoll(e.target.checked)}
+              />
+              <span>添加投票</span>
+            </label>
+            {hasPoll && (
+              <div className="poll-create-options">
+                <div className="poll-type-toggle">
+                  <label className="poll-type-option">
+                    <input
+                      type="radio"
+                      name="pollType"
+                      checked={!pollIsMulti}
+                      onChange={() => { setPollIsMulti(false); setPollOptions(['', '']) }}
+                    />
+                    <span>单选投票</span>
+                  </label>
+                  <label className="poll-type-option">
+                    <input
+                      type="radio"
+                      name="pollType"
+                      checked={pollIsMulti}
+                      onChange={() => { setPollIsMulti(true); setPollMaxChoices(2); setPollOptions(['', '']) }}
+                    />
+                    <span>多选投票</span>
+                  </label>
+                  {pollIsMulti && (
+                    <div className="poll-max-choices">
+                      <label>最多可选</label>
+                      <select
+                        className="form-control poll-max-select"
+                        value={pollMaxChoices}
+                        onChange={(e) => setPollMaxChoices(parseInt(e.target.value))}
+                      >
+                        {pollOptions.filter((o) => o.trim()).length >= 2 &&
+                          Array.from(
+                            { length: pollOptions.filter((o) => o.trim()).length - 1 },
+                            (_, i) => (
+                              <option key={i + 2} value={i + 2}>{i + 2}</option>
+                            )
+                          )}
+                      </select>
+                      <span>项</span>
+                    </div>
+                  )}
+                </div>
+                <div className="poll-option-list">
+                  {pollOptions.map((opt, index) => (
+                    <div key={index} className="poll-option-input-row">
+                      <input
+                        className="form-control"
+                        value={opt}
+                        onChange={(e) => updatePollOption(index, e.target.value)}
+                        placeholder={`选项 ${index + 1}`}
+                        maxLength={200}
+                      />
+                      {pollOptions.length > 2 && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-secondary poll-option-remove-btn"
+                          onClick={() => removePollOption(index)}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {pollOptions.length < 20 && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline poll-add-option-btn"
+                    onClick={addPollOption}
+                  >
+                    + 添加选项
+                  </button>
+                )}
               </div>
             )}
           </div>

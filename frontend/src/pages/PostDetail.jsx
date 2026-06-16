@@ -1,11 +1,140 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import api, { getPostRevisions, getPostDiff, getPostWebSocketUrl, createReport, rewardPost, getPostRewardInfo } from '../api'
+import api, { getPostRevisions, getPostDiff, getPostWebSocketUrl, createReport, rewardPost, getPostRewardInfo, getPoll, votePoll } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import MarkdownEditor from '../components/MarkdownEditor'
 
 const PAGE_SIZE = 20
+
+function PollSection({ postId }) {
+  const { user, isAuthenticated } = useAuth()
+  const [poll, setPoll] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [voting, setVoting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState([])
+
+  const loadPoll = useCallback(async () => {
+    try {
+      const res = await getPoll(postId)
+      setPoll(res.data)
+    } catch {
+      setPoll(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [postId])
+
+  useEffect(() => {
+    loadPoll()
+  }, [loadPoll])
+
+  if (loading) return null
+  if (!poll) return null
+
+  const handleVote = async () => {
+    if (!selectedIds.length) return
+    setVoting(true)
+    try {
+      const res = await votePoll(postId, selectedIds)
+      setPoll(res.data)
+      setSelectedIds([])
+    } catch (err) {
+      alert(err.response?.data?.detail || '投票失败')
+    } finally {
+      setVoting(false)
+    }
+  }
+
+  const toggleOption = (optionId) => {
+    if (poll.has_voted) return
+    if (poll.is_multi) {
+      setSelectedIds((prev) => {
+        if (prev.includes(optionId)) {
+          return prev.filter((id) => id !== optionId)
+        }
+        if (prev.length >= poll.max_choices) return prev
+        return [...prev, optionId]
+      })
+    } else {
+      setSelectedIds((prev) => (prev[0] === optionId ? [] : [optionId]))
+    }
+  }
+
+  return (
+    <div className="poll-section">
+      <div className="poll-header">
+        <span className="poll-icon">📊</span>
+        <span className="poll-title">投票</span>
+        {poll.is_multi && (
+          <span className="poll-type-badge">多选（最多{poll.max_choices}项）</span>
+        )}
+        {!poll.is_multi && (
+          <span className="poll-type-badge">单选</span>
+        )}
+      </div>
+      <div className="poll-options">
+        {poll.options.map((opt) => {
+          const isSelected = selectedIds.includes(opt.id)
+          const isVoted = poll.has_voted && poll.voted_option_ids.includes(opt.id)
+
+          return (
+            <div
+              key={opt.id}
+              className={`poll-option ${!poll.has_voted ? 'poll-option-votable' : ''} ${isSelected ? 'poll-option-selected' : ''} ${isVoted ? 'poll-option-voted' : ''}`}
+              onClick={() => toggleOption(opt.id)}
+            >
+              <div className="poll-option-header">
+                <div className="poll-option-left">
+                  {!poll.has_voted && (
+                    <span className={`poll-option-check ${poll.is_multi ? 'poll-checkbox' : 'poll-radio'} ${isSelected ? 'checked' : ''}`} />
+                  )}
+                  <span className="poll-option-text">{opt.content}</span>
+                  {isVoted && <span className="poll-voted-mark">✓</span>}
+                </div>
+                {poll.has_voted && (
+                  <span className="poll-option-stats">
+                    {opt.vote_count} 票 ({opt.percentage}%)
+                  </span>
+                )}
+              </div>
+              {poll.has_voted && (
+                <div className="poll-progress-bar">
+                  <div
+                    className={`poll-progress-fill ${isVoted ? 'poll-progress-voted' : ''}`}
+                    style={{ width: `${opt.percentage}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="poll-footer">
+        {poll.has_voted ? (
+          <span className="poll-total">共 {poll.total_votes} 人参与投票</span>
+        ) : isAuthenticated ? (
+          <div className="poll-vote-actions">
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleVote}
+              disabled={voting || selectedIds.length === 0}
+            >
+              {voting ? '投票中...' : '投票'}
+            </button>
+            {poll.is_multi && selectedIds.length > 0 && (
+              <span className="poll-selection-hint">
+                已选 {selectedIds.length}/{poll.max_choices}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="poll-total">请登录后参与投票</span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
   const { user, isAuthenticated } = useAuth()
@@ -648,6 +777,7 @@ export default function PostDetail() {
         {activeTab === 'content' && (
           <div className="post-detail-content">
             <MarkdownRenderer content={post.content} />
+            <PollSection postId={post.id} />
           </div>
         )}
 

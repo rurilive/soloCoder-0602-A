@@ -282,3 +282,45 @@ class Reward(Base):
     giver: Mapped["User"] = relationship("User", foreign_keys=[giver_id], lazy="selectin")
     receiver: Mapped["User"] = relationship("User", foreign_keys=[receiver_id], lazy="selectin")
     post: Mapped["Post"] = relationship("Post", lazy="selectin")
+
+
+class Poll(Base):
+    __tablename__ = "polls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False, unique=True, index=True)
+    is_multi: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    max_choices: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    post: Mapped["Post"] = relationship("Post", lazy="selectin")
+    options: Mapped[list["PollOption"]] = relationship("PollOption", back_populates="poll", lazy="selectin")
+
+
+class PollOption(Base):
+    __tablename__ = "poll_options"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    poll_id: Mapped[int] = mapped_column(Integer, ForeignKey("polls.id"), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(String(200), nullable=False)
+    vote_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    poll: Mapped["Poll"] = relationship("Poll", back_populates="options")
+    votes: Mapped[list["PollVote"]] = relationship("PollVote", back_populates="option", lazy="selectin")
+
+
+class PollVote(Base):
+    __tablename__ = "poll_votes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "option_id", name="uq_poll_vote_user_option"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    poll_id: Mapped[int] = mapped_column(Integer, ForeignKey("polls.id"), nullable=False, index=True)
+    option_id: Mapped[int] = mapped_column(Integer, ForeignKey("poll_options.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    poll: Mapped["Poll"] = relationship("Poll", lazy="selectin")
+    option: Mapped["PollOption"] = relationship("PollOption", back_populates="votes")
+    user: Mapped["User"] = relationship("User", lazy="selectin")
