@@ -199,7 +199,6 @@ export default function Home() {
                 )}
                 <div className="feed-card-stats">
                   <span>💬 {post.reply_count ?? 0}</span>
-                  <span>👁 {post.view_count ?? 0}</span>
                 </div>
               </div>
             ))

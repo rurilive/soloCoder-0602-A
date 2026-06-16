@@ -1011,6 +1011,7 @@ async def search_posts(
     limit: int = 20,
     section_id: int | None = None,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     if skip < 0:
         raise HTTPException(status_code=400, detail="skip 不能为负数")
@@ -1021,11 +1022,23 @@ async def search_posts(
 
     keyword = f"%{q.strip()}%" if q.strip() else None
 
+    is_mod = await is_moderator(db, current_user)
+
     base_where = [
         Post.is_deleted == False,
-        Post.is_hidden == False,
-        Post.is_pending_review == False,
     ]
+
+    if not is_mod:
+        if current_user is not None:
+            from sqlalchemy import or_
+            base_where.append(or_(Post.is_hidden == False, Post.author_id == current_user.id))
+            base_where.append(or_(Post.is_pending_review == False, Post.author_id == current_user.id))
+        else:
+            base_where.append(Post.is_hidden == False)
+            base_where.append(Post.is_pending_review == False)
+    else:
+        base_where.append(Post.is_hidden == False)
+
     if keyword is not None:
         base_where.append(Post.title.ilike(keyword) | Post.content.ilike(keyword))
     if section_id is not None:
