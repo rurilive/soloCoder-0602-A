@@ -193,12 +193,13 @@ async def vote_poll(
 
     await db.commit()
 
-    await db.expire_all()
-
     result = await db.execute(
-        select(Poll).where(Poll.id == poll.id).options(
+        select(Poll)
+        .where(Poll.id == poll.id)
+        .options(
             selectinload(Poll.options),
         )
+        .execution_options(populate_existing=True)
     )
     poll = result.scalar_one()
 
