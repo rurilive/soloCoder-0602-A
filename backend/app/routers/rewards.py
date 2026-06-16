@@ -57,6 +57,7 @@ async def reward_post(
         change=-2,
         reason=f"打赏帖子《{post.title}》",
         reason_type="reward_given",
+        operator_id=current_user.id,
         post_id=post_id,
     )
 
@@ -66,6 +67,7 @@ async def reward_post(
         change=1,
         reason=f"帖子《{post.title}》被 {current_user.username} 打赏",
         reason_type="reward_received",
+        operator_id=current_user.id,
         post_id=post_id,
     )
 

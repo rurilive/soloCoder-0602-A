@@ -379,7 +379,7 @@ export default function Profile() {
                           </div>
                         </div>
                       </div>
-                      <div className="reward-record-amount rep-negative">-2</div>
+                      <div className="reward-record-amount rep-negative">-{r.amount}</div>
                     </div>
                   ))}
                 </div>
@@ -413,7 +413,7 @@ export default function Profile() {
                         </div>
                       </div>
                     </div>
-                    <div className="reward-record-amount rep-positive">+1</div>
+                    <div className="reward-record-amount rep-positive">+{r.amount}</div>
                   </div>
                 ))}
               </div>
