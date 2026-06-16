@@ -460,3 +460,30 @@ class PaginatedPendingReviewsResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class RewardResponse(BaseModel):
+    id: int
+    giver_id: int
+    receiver_id: int
+    post_id: int
+    amount: int
+    giver: AuthorBrief
+    receiver: AuthorBrief
+    post_title: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedRewardsResponse(BaseModel):
+    items: list[RewardResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class PostRewardInfo(BaseModel):
+    reward_count: int = 0
+    is_rewarded: bool = False
+    rewarders: list[AuthorBrief] = []

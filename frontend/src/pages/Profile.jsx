@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import api, { getMyReputationLogs } from '../api'
+import api, { getMyReputationLogs, getMyGivenRewards, getMyReceivedRewards } from '../api'
 import { formatTime } from '../utils/notification'
 
 const PAGE_SIZE = 20
@@ -14,6 +14,8 @@ const REASON_TYPE_LABELS = {
   report_resolved: '举报通过',
   muted: '被禁言',
   manual_adjust: '手动调整',
+  reward_given: '打赏支出',
+  reward_received: '打赏收入',
 }
 
 function getRoleLabel(role) {
@@ -42,6 +44,14 @@ export default function Profile() {
   const [repSkip, setRepSkip] = useState(0)
   const [repTotal, setRepTotal] = useState(0)
   const [repLoading, setRepLoading] = useState(false)
+  const [rewardSubTab, setRewardSubTab] = useState('given')
+  const [givenRewards, setGivenRewards] = useState([])
+  const [givenSkip, setGivenSkip] = useState(0)
+  const [givenTotal, setGivenTotal] = useState(0)
+  const [receivedRewards, setReceivedRewards] = useState([])
+  const [receivedSkip, setReceivedSkip] = useState(0)
+  const [receivedTotal, setReceivedTotal] = useState(0)
+  const [rewardLoading, setRewardLoading] = useState(false)
 
   useEffect(() => {
     if (activeTab === 'favorites') {
@@ -74,6 +84,38 @@ export default function Profile() {
         .finally(() => setRepLoading(false))
     }
   }, [activeTab, repSkip])
+
+  useEffect(() => {
+    if (activeTab === 'rewards' && rewardSubTab === 'given') {
+      setRewardLoading(true)
+      getMyGivenRewards(givenSkip, PAGE_SIZE)
+        .then((res) => {
+          setGivenRewards(res.data.items)
+          setGivenTotal(res.data.total)
+        })
+        .catch(() => {
+          setGivenRewards([])
+          setGivenTotal(0)
+        })
+        .finally(() => setRewardLoading(false))
+    }
+  }, [activeTab, rewardSubTab, givenSkip])
+
+  useEffect(() => {
+    if (activeTab === 'rewards' && rewardSubTab === 'received') {
+      setRewardLoading(true)
+      getMyReceivedRewards(receivedSkip, PAGE_SIZE)
+        .then((res) => {
+          setReceivedRewards(res.data.items)
+          setReceivedTotal(res.data.total)
+        })
+        .catch(() => {
+          setReceivedRewards([])
+          setReceivedTotal(0)
+        })
+        .finally(() => setRewardLoading(false))
+    }
+  }, [activeTab, rewardSubTab, receivedSkip])
 
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0]
@@ -149,6 +191,12 @@ export default function Profile() {
           onClick={() => setActiveTab('favorites')}
         >
           我的收藏
+        </button>
+        <button
+          className={`profile-tab ${activeTab === 'rewards' ? 'active' : ''}`}
+          onClick={() => setActiveTab('rewards')}
+        >
+          打赏记录
         </button>
       </div>
 
@@ -283,6 +331,97 @@ export default function Profile() {
                   <button disabled={favSkip === 0} onClick={() => setFavSkip(Math.max(0, favSkip - PAGE_SIZE))}>上一页</button>
                   <span className="page-info">第 {Math.floor(favSkip / PAGE_SIZE) + 1} 页 / 共 {favTotal} 条</span>
                   <button disabled={!hasMoreFavorites} onClick={() => setFavSkip(favSkip + PAGE_SIZE)}>下一页</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'rewards' && (
+        <div>
+          <div className="reward-sub-tabs">
+            <button
+              className={`reward-sub-tab ${rewardSubTab === 'given' ? 'active' : ''}`}
+              onClick={() => setRewardSubTab('given')}
+            >
+              我打赏的
+            </button>
+            <button
+              className={`reward-sub-tab ${rewardSubTab === 'received' ? 'active' : ''}`}
+              onClick={() => setRewardSubTab('received')}
+            >
+              我收到的
+            </button>
+          </div>
+
+          {rewardLoading ? (
+            <div className="loading">加载中...</div>
+          ) : rewardSubTab === 'given' ? (
+            givenRewards.length === 0 ? (
+              <div className="empty-state"><p>暂无打赏记录</p></div>
+            ) : (
+              <>
+                <div className="reward-records">
+                  {givenRewards.map((r) => (
+                    <div key={r.id} className="reward-record-item">
+                      <div className="reward-record-left">
+                        <span className="avatar avatar-sm">
+                          {r.receiver?.avatar ? <img src={r.receiver.avatar} alt="" /> : r.receiver?.username?.[0] || '?'}
+                        </span>
+                        <div className="reward-record-info">
+                          <div className="reward-record-desc">
+                            打赏了 <strong>{r.receiver?.username || '未知'}</strong>
+                          </div>
+                          <div className="reward-record-meta">
+                            {r.post_title && <span className="reward-record-post" onClick={() => navigate(`/post/${r.post_id}`)}>《{r.post_title}》</span>}
+                            <span>{formatTime(r.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="reward-record-amount rep-negative">-2</div>
+                    </div>
+                  ))}
+                </div>
+                {givenTotal > 0 && (
+                  <div className="pagination">
+                    <button disabled={givenSkip === 0} onClick={() => setGivenSkip(Math.max(0, givenSkip - PAGE_SIZE))}>上一页</button>
+                    <span className="page-info">第 {Math.floor(givenSkip / PAGE_SIZE) + 1} 页 / 共 {givenTotal} 条</span>
+                    <button disabled={givenSkip + PAGE_SIZE >= givenTotal} onClick={() => setGivenSkip(givenSkip + PAGE_SIZE)}>下一页</button>
+                  </div>
+                )}
+              </>
+            )
+          ) : receivedRewards.length === 0 ? (
+            <div className="empty-state"><p>暂无收到的打赏</p></div>
+          ) : (
+            <>
+              <div className="reward-records">
+                {receivedRewards.map((r) => (
+                  <div key={r.id} className="reward-record-item">
+                    <div className="reward-record-left">
+                      <span className="avatar avatar-sm">
+                        {r.giver?.avatar ? <img src={r.giver.avatar} alt="" /> : r.giver?.username?.[0] || '?'}
+                      </span>
+                      <div className="reward-record-info">
+                        <div className="reward-record-desc">
+                          收到 <strong>{r.giver?.username || '未知'}</strong> 的打赏
+                        </div>
+                        <div className="reward-record-meta">
+                          {r.post_title && <span className="reward-record-post" onClick={() => navigate(`/post/${r.post_id}`)}>《{r.post_title}》</span>}
+                          <span>{formatTime(r.created_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="reward-record-amount rep-positive">+1</div>
+                  </div>
+                ))}
+              </div>
+              {receivedTotal > 0 && (
+                <div className="pagination">
+                  <button disabled={receivedSkip === 0} onClick={() => setReceivedSkip(Math.max(0, receivedSkip - PAGE_SIZE))}>上一页</button>
+                  <span className="page-info">第 {Math.floor(receivedSkip / PAGE_SIZE) + 1} 页 / 共 {receivedTotal} 条</span>
+                  <button disabled={receivedSkip + PAGE_SIZE >= receivedTotal} onClick={() => setReceivedSkip(receivedSkip + PAGE_SIZE)}>下一页</button>
                 </div>
               )}
             </>

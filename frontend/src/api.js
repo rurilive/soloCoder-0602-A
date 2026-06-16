@@ -114,4 +114,16 @@ export const getUserReputationLogs = (userId, skip = 0, limit = 20) =>
 export const adjustUserReputation = (userId, change, reason) =>
   api.put(`/api/admin/users/${userId}/reputation`, { change, reason })
 
+export const rewardPost = (postId) =>
+  api.post(`/api/posts/${postId}/reward`)
+
+export const getPostRewardInfo = (postId) =>
+  api.get(`/api/posts/${postId}/reward-info`)
+
+export const getMyGivenRewards = (skip = 0, limit = 20) =>
+  api.get('/api/me/rewards/given', { params: { skip, limit } })
+
+export const getMyReceivedRewards = (skip = 0, limit = 20) =>
+  api.get('/api/me/rewards/received', { params: { skip, limit } })
+
 export default api

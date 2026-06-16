@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import api, { getPostRevisions, getPostDiff, getPostWebSocketUrl, createReport } from '../api'
+import api, { getPostRevisions, getPostDiff, getPostWebSocketUrl, createReport, rewardPost, getPostRewardInfo } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import MarkdownEditor from '../components/MarkdownEditor'
@@ -206,7 +206,7 @@ function RevisionList({ revisions, onViewDiff, selectedOld, selectedNew, onSelec
 export default function PostDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user, isAuthenticated, isAdmin, isModerator } = useAuth()
+  const { user, isAuthenticated, isAdmin, isModerator, fetchUser } = useAuth()
   const [post, setPost] = useState(null)
   const [replies, setReplies] = useState([])
   const [replyContent, setReplyContent] = useState('')
@@ -227,6 +227,8 @@ export default function PostDetail() {
   const [reportModal, setReportModal] = useState(null)
   const [reportReason, setReportReason] = useState('')
   const [reportSubmitting, setReportSubmitting] = useState(false)
+  const [rewardInfo, setRewardInfo] = useState({ reward_count: 0, is_rewarded: false, rewarders: [] })
+  const [rewardLoading, setRewardLoading] = useState(false)
   const wsRef = useRef(null)
 
   const postId = parseInt(id)
@@ -277,6 +279,12 @@ export default function PostDetail() {
       .catch(() => setPost(null))
       .finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    getPostRewardInfo(postId)
+      .then((res) => setRewardInfo(res.data))
+      .catch(() => setRewardInfo({ reward_count: 0, is_rewarded: false, rewarders: [] }))
+  }, [postId])
 
   useEffect(() => {
     api.get(`/api/posts/${id}/replies`, { params: { skip, limit: PAGE_SIZE } })
@@ -353,6 +361,7 @@ export default function PostDetail() {
   const canDelete = isAuthor || isAdmin || isModerator
   const canPin = isAdmin || isModerator
   const canFavorite = isAuthenticated && post && !post.is_deleted
+  const canReward = isAuthenticated && user && post && !post.is_deleted && post.author_id !== user.id && !rewardInfo.is_rewarded
   const canReportPost = isAuthenticated && user && post && !post.is_deleted && post.author_id !== user.id
 
   const handleReplyClick = (reply) => {
@@ -380,6 +389,21 @@ export default function PostDetail() {
       setPost(res.data)
     } catch (err) {
       alert('操作失败: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleReward = async () => {
+    if (!confirm('确认打赏？将消耗2点声望，作者获得1点声望')) return
+    setRewardLoading(true)
+    try {
+      await rewardPost(postId)
+      const res = await getPostRewardInfo(postId)
+      setRewardInfo(res.data)
+      await fetchUser()
+    } catch (err) {
+      alert('打赏失败: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setRewardLoading(false)
     }
   }
 
@@ -514,6 +538,18 @@ export default function PostDetail() {
             <span>👁 {post.view_count} 次浏览</span>
           </div>
           <div className="post-detail-actions">
+            {canReward && (
+              <button
+                className="btn btn-sm btn-reward"
+                onClick={handleReward}
+                disabled={rewardLoading}
+              >
+                {rewardLoading ? '打赏中...' : '🎁 打赏'}
+              </button>
+            )}
+            {rewardInfo.is_rewarded && (
+              <span className="rewarded-badge">已打赏</span>
+            )}
             {canFavorite && (
               <button
                 className={`btn btn-sm ${post.is_favorited ? 'btn-warning' : 'btn-secondary'}`}
@@ -537,8 +573,19 @@ export default function PostDetail() {
               <button className="btn btn-sm btn-secondary" onClick={() => handleOpenReport('post', post.id)}>举报</button>
             )}
           </div>
+          {rewardInfo.reward_count > 0 && (
+            <div className="reward-info">
+              <span className="reward-count">🎁 {rewardInfo.reward_count} 人打赏</span>
+              <div className="rewarder-avatars">
+                {rewardInfo.rewarders.map((r) => (
+                  <span key={r.id} className="avatar avatar-xs rewarder-avatar" title={r.username}>
+                    {r.avatar ? <img src={r.avatar} alt={r.username} /> : r.username?.[0] || '?'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-
         <div className="post-tabs">
           <button 
             className={`post-tab ${activeTab === 'content' ? 'active' : ''}`}

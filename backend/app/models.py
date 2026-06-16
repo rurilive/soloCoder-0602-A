@@ -21,7 +21,7 @@ class User(Base):
 
     posts: Mapped[list["Post"]] = relationship("Post", back_populates="author", lazy="selectin")
     replies: Mapped[list["Reply"]] = relationship("Reply", back_populates="author", lazy="selectin")
-    reputation_logs: Mapped[list["ReputationLog"]] = relationship("ReputationLog", back_populates="user", lazy="selectin")
+    reputation_logs: Mapped[list["ReputationLog"]] = relationship("ReputationLog", foreign_keys="ReputationLog.user_id", back_populates="user", lazy="selectin")
 
 
 class Section(Base):
@@ -247,3 +247,21 @@ class SensitiveWord(Base):
     word: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Reward(Base):
+    __tablename__ = "rewards"
+    __table_args__ = (
+        UniqueConstraint("giver_id", "post_id", name="uq_reward_giver_post"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    giver_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    receiver_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    giver: Mapped["User"] = relationship("User", foreign_keys=[giver_id], lazy="selectin")
+    receiver: Mapped["User"] = relationship("User", foreign_keys=[receiver_id], lazy="selectin")
+    post: Mapped["Post"] = relationship("Post", lazy="selectin")

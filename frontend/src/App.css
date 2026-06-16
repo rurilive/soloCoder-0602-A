@@ -2493,3 +2493,155 @@ textarea.form-control {
   border-bottom-color: var(--primary);
   font-weight: 600;
 }
+
+.btn-reward {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: white;
+  border: none;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-reward:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ee5a24, #d63031);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(238, 90, 36, 0.3);
+}
+
+.btn-reward:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rewarded-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--success-light);
+  color: var(--success);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.reward-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--bg-body);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-light);
+}
+
+.reward-count {
+  font-size: 13px;
+  color: var(--text-medium);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.rewarder-avatars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.rewarder-avatar {
+  cursor: default;
+}
+
+.reward-sub-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+
+.reward-sub-tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--text-medium);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reward-sub-tab:hover {
+  color: var(--text-dark);
+}
+
+.reward-sub-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.reward-records {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.reward-record-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg-white);
+  border-bottom: 1px solid var(--border-light);
+  transition: background 0.15s;
+}
+
+.reward-record-item:hover {
+  background: var(--bg-hover);
+}
+
+.reward-record-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.reward-record-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reward-record-desc {
+  font-size: 14px;
+  color: var(--text-dark);
+}
+
+.reward-record-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.reward-record-post {
+  color: var(--primary);
+  cursor: pointer;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reward-record-post:hover {
+  text-decoration: underline;
+}
+
+.reward-record-amount {
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+}
