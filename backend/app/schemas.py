@@ -68,12 +68,14 @@ class SectionResponse(BaseModel):
 class PostCreate(BaseModel):
     title: str
     content: str
+    scheduled_at: datetime | None = None
 
 
 class PostUpdate(BaseModel):
     title: str | None = None
     content: str | None = None
     edit_reason: str | None = None
+    scheduled_at: datetime | None | str = "UNCHANGED"
 
 
 class AuthorBrief(BaseModel):
@@ -116,6 +118,8 @@ class PostResponse(BaseModel):
     is_deleted: bool
     is_hidden: bool = False
     is_pending_review: bool = False
+    is_scheduled: bool = False
+    scheduled_at: datetime | None = None
     view_count: int
     created_at: datetime
     updated_at: datetime
@@ -133,6 +137,8 @@ class PostListResponse(BaseModel):
     author: AuthorBrief
     is_pinned: bool
     is_deleted: bool
+    is_scheduled: bool = False
+    scheduled_at: datetime | None = None
     view_count: int
     reply_count: int = 0
     created_at: datetime
@@ -180,6 +186,8 @@ class PostSearchItem(BaseModel):
     author_id: int
     author: AuthorBrief
     is_pinned: bool
+    is_scheduled: bool = False
+    scheduled_at: datetime | None = None
     view_count: int
     reply_count: int = 0
     created_at: datetime

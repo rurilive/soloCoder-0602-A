@@ -266,6 +266,7 @@ async def get_feed(
             Post.is_deleted == False,
             Post.is_hidden == False,
             Post.is_pending_review == False,
+            Post.scheduled_at.is_(None),
         )
     )
 

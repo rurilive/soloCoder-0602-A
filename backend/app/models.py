@@ -49,6 +49,7 @@ class Post(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_pending_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

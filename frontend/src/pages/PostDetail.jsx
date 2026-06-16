@@ -229,6 +229,7 @@ export default function PostDetail() {
   const [reportSubmitting, setReportSubmitting] = useState(false)
   const [rewardInfo, setRewardInfo] = useState({ reward_count: 0, is_rewarded: false, rewarders: [] })
   const [rewardLoading, setRewardLoading] = useState(false)
+  const [scheduledCountdown, setScheduledCountdown] = useState('')
   const wsRef = useRef(null)
 
   const postId = parseInt(id)
@@ -279,6 +280,32 @@ export default function PostDetail() {
       .catch(() => setPost(null))
       .finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!post || !post.is_scheduled || !post.scheduled_at) return
+    const updateCountdown = () => {
+      const now = new Date()
+      const target = new Date(post.scheduled_at)
+      const diff = target - now
+      if (diff <= 0) {
+        setScheduledCountdown('即将发布...')
+        return
+      }
+      const days = Math.floor(diff / 86400000)
+      const hours = Math.floor((diff % 86400000) / 3600000)
+      const minutes = Math.floor((diff % 3600000) / 60000)
+      const seconds = Math.floor((diff % 60000) / 1000)
+      const parts = []
+      if (days > 0) parts.push(`${days}天`)
+      if (hours > 0 || days > 0) parts.push(`${hours}小时`)
+      if (minutes > 0 || hours > 0 || days > 0) parts.push(`${minutes}分`)
+      parts.push(`${seconds}秒`)
+      setScheduledCountdown(parts.join(' '))
+    }
+    updateCountdown()
+    const timer = setInterval(updateCountdown, 1000)
+    return () => clearInterval(timer)
+  }, [post])
 
   useEffect(() => {
     getPostRewardInfo(postId)
@@ -520,12 +547,29 @@ export default function PostDetail() {
             </div>
           </div>
         )}
+        {post.is_scheduled && user && post.author_id === user.id && (
+          <div className="scheduled-publish-banner">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '20px' }}>🕐</span>
+              <div>
+                <strong>定时发布中</strong>
+                <div style={{ fontSize: '13px', opacity: 0.9 }}>
+                  此帖子将于 {new Date(post.scheduled_at).toLocaleString()} 发布，目前仅您自己可见。
+                </div>
+                <div className="scheduled-countdown">
+                  距发布还有：{scheduledCountdown}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="post-detail-header">
           <div className="post-detail-title">
             {post.title}
             {post.is_pinned && <span className="pin-badge">置顶</span>}
             {post.is_deleted && <span className="deleted-badge">已删除</span>}
             {post.is_pending_review && <span className="pending-review-badge">审核中</span>}
+            {post.is_scheduled && <span className="scheduled-badge">定时发布</span>}
           </div>
           <div className="post-detail-meta">
             <span className="post-detail-author">

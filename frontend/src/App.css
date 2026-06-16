@@ -2817,3 +2817,76 @@ textarea.form-control {
   font-size: 14px;
   color: var(--text-dark);
 }
+
+.scheduled-publish-group {
+  padding: 12px 16px;
+  background: var(--bg-body);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-light);
+}
+
+.scheduled-publish-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-dark);
+}
+
+.scheduled-publish-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.scheduled-publish-label span {
+  font-size: 14px;
+}
+
+.scheduled-datetime-picker {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.scheduled-datetime-picker label {
+  font-size: 13px;
+  color: var(--text-medium);
+  margin-bottom: 6px;
+}
+
+.scheduled-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #e8f0fe;
+  color: var(--primary);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.scheduled-publish-banner {
+  background: #e8f0fe;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  color: var(--primary-dark);
+}
+
+.scheduled-publish-banner strong {
+  color: var(--primary-dark);
+  font-size: 15px;
+}
+
+.scheduled-countdown {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}

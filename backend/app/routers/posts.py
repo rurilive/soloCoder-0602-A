@@ -40,6 +40,10 @@ router = APIRouter(prefix="/api", tags=["posts"])
 post_watchers: dict[int, list[WebSocket]] = {}
 
 
+def _is_scheduled(post: Post) -> bool:
+    return post.scheduled_at is not None and post.scheduled_at > datetime.utcnow()
+
+
 async def _broadcast_post_edit(post_id: int, editor: User, edit_reason: str | None, new_title: str, new_content: str) -> None:
     if post_id not in post_watchers:
         return
@@ -171,11 +175,14 @@ async def list_posts(
         if current_user is not None:
             base_where.append(or_(Post.is_hidden == False, Post.author_id == current_user.id))
             base_where.append(or_(Post.is_pending_review == False, Post.author_id == current_user.id))
+            base_where.append(or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id))
         else:
             base_where.append(Post.is_hidden == False)
             base_where.append(Post.is_pending_review == False)
+            base_where.append(Post.scheduled_at.is_(None))
     else:
         base_where.append(Post.is_hidden == False)
+        base_where.append(Post.scheduled_at.is_(None))
 
     stmt = (
         select(Post)
@@ -211,6 +218,8 @@ async def list_posts(
                 ),
                 is_pinned=post.is_pinned,
                 is_deleted=post.is_deleted,
+                is_scheduled=_is_scheduled(post),
+                scheduled_at=post.scheduled_at,
                 view_count=post.view_count,
                 reply_count=reply_count,
                 created_at=post.created_at,
@@ -236,9 +245,13 @@ async def create_post(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="板块不存在")
 
+    if post_data.scheduled_at is not None and post_data.scheduled_at <= datetime.utcnow():
+        raise HTTPException(status_code=400, detail="定时发布时间必须为未来时间")
+
     combined_text = f"{post_data.title}\n{post_data.content}"
     hit_words = find_sensitive_words(combined_text)
     is_pending = len(hit_words) > 0
+    is_sched = post_data.scheduled_at is not None
 
     post = Post(
         title=post_data.title,
@@ -246,6 +259,7 @@ async def create_post(
         section_id=section_id,
         author_id=current_user.id,
         is_pending_review=is_pending,
+        scheduled_at=post_data.scheduled_at,
     )
     db.add(post)
     await db.flush()
@@ -261,7 +275,7 @@ async def create_post(
     )
     db.add(revision)
 
-    if not is_pending:
+    if not is_pending and not is_sched:
         await change_reputation(
             db,
             user_id=current_user.id,
@@ -273,7 +287,7 @@ async def create_post(
 
     await db.commit()
 
-    if not is_pending:
+    if not is_pending and not is_sched:
         await create_mentions_and_notifications(db, post, current_user, post_data.content)
 
     if is_pending:
@@ -283,7 +297,32 @@ async def create_post(
     result = await db.execute(
         select(Post).where(Post.id == post.id).options(selectinload(Post.author), selectinload(Post.replies))
     )
-    return result.scalar_one()
+    post = result.scalar_one()
+
+    return PostResponse(
+        id=post.id,
+        title=post.title,
+        content=post.content,
+        section_id=post.section_id,
+        author_id=post.author_id,
+        author=AuthorBrief(
+            id=post.author.id,
+            username=post.author.username,
+            avatar=post.author.avatar,
+            reputation=post.author.reputation,
+        ),
+        is_pinned=post.is_pinned,
+        is_deleted=post.is_deleted,
+        is_hidden=post.is_hidden,
+        is_pending_review=post.is_pending_review,
+        is_scheduled=_is_scheduled(post),
+        scheduled_at=post.scheduled_at,
+        view_count=post.view_count,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+        replies=[],
+        is_favorited=False,
+    )
 
 
 @router.get("/posts/{post_id}", response_model=PostResponse)
@@ -310,7 +349,10 @@ async def get_post(
     if post.is_pending_review and not is_mod and not is_author:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
-    if not post.is_pending_review or is_mod:
+    if _is_scheduled(post) and not is_author and not is_mod:
+        raise HTTPException(status_code=404, detail="帖子不存在")
+
+    if not post.is_pending_review and not _is_scheduled(post):
         post.view_count += 1
         await db.commit()
         await db.refresh(post)
@@ -380,6 +422,8 @@ async def get_post(
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
         is_pending_review=post.is_pending_review,
+        is_scheduled=_is_scheduled(post),
+        scheduled_at=post.scheduled_at,
         view_count=post.view_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
@@ -404,6 +448,11 @@ async def update_post(
 
     if post.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="只能编辑自己的帖子")
+
+    if post_data.scheduled_at != "UNCHANGED":
+        if post_data.scheduled_at is not None and post_data.scheduled_at <= datetime.utcnow():
+            raise HTTPException(status_code=400, detail="定时发布时间必须为未来时间")
+        post.scheduled_at = post_data.scheduled_at
 
     if post_data.title is not None or post_data.content is not None:
         max_version_result = await db.execute(
@@ -509,6 +558,8 @@ async def update_post(
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
+        is_scheduled=_is_scheduled(post),
+        scheduled_at=post.scheduled_at,
         view_count=post.view_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
@@ -1029,11 +1080,14 @@ async def search_posts(
         if current_user is not None:
             base_where.append(or_(Post.is_hidden == False, Post.author_id == current_user.id))
             base_where.append(or_(Post.is_pending_review == False, Post.author_id == current_user.id))
+            base_where.append(or_(Post.scheduled_at.is_(None), Post.author_id == current_user.id))
         else:
             base_where.append(Post.is_hidden == False)
             base_where.append(Post.is_pending_review == False)
+            base_where.append(Post.scheduled_at.is_(None))
     else:
         base_where.append(Post.is_hidden == False)
+        base_where.append(Post.scheduled_at.is_(None))
 
     if keyword is not None:
         base_where.append(Post.title.ilike(keyword) | Post.content.ilike(keyword))
@@ -1099,6 +1153,8 @@ async def search_posts(
                     reputation=post.author.reputation if post.author else 0,
                 ),
                 is_pinned=post.is_pinned,
+                is_scheduled=_is_scheduled(post),
+                scheduled_at=post.scheduled_at,
                 view_count=post.view_count,
                 reply_count=reply_count,
                 created_at=post.created_at,

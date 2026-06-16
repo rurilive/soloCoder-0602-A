@@ -14,6 +14,9 @@ export default function EditPost() {
   const [error, setError] = useState('')
   const [originalTitle, setOriginalTitle] = useState('')
   const [originalContent, setOriginalContent] = useState('')
+  const [isScheduled, setIsScheduled] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState('')
+  const [originalScheduledAt, setOriginalScheduledAt] = useState(null)
 
   useEffect(() => {
     api.get(`/api/posts/${id}`)
@@ -22,12 +25,25 @@ export default function EditPost() {
         setContent(res.data.content)
         setOriginalTitle(res.data.title)
         setOriginalContent(res.data.content)
+        if (res.data.is_scheduled && res.data.scheduled_at) {
+          setIsScheduled(true)
+          const dt = new Date(res.data.scheduled_at)
+          const localStr = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+          setScheduledAt(localStr)
+          setOriginalScheduledAt(res.data.scheduled_at)
+        }
       })
       .catch(() => setError('加载帖子失败'))
       .finally(() => setLoading(false))
   }, [id])
 
   const hasChanges = title !== originalTitle || content !== originalContent
+
+  const getMinDatetime = () => {
+    const now = new Date()
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+    return now.toISOString().slice(0, 16)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -39,14 +55,30 @@ export default function EditPost() {
       setError('请填写编辑原因')
       return
     }
+    if (isScheduled && !scheduledAt) {
+      setError('请选择定时发布时间')
+      return
+    }
+    if (isScheduled && new Date(scheduledAt) <= new Date()) {
+      setError('定时发布时间必须为未来时间')
+      return
+    }
     setSaving(true)
     setError('')
     try {
-      const res = await api.put(`/api/posts/${id}`, { 
-        title, 
-        content, 
-        edit_reason: hasChanges ? editReason.trim() : null 
-      })
+      const payload = {
+        title,
+        content,
+        edit_reason: hasChanges ? editReason.trim() : null,
+      }
+      if (isScheduled && scheduledAt) {
+        payload.scheduled_at = new Date(scheduledAt).toISOString()
+      } else if (!isScheduled && originalScheduledAt) {
+        payload.scheduled_at = null
+      } else {
+        payload.scheduled_at = 'UNCHANGED'
+      }
+      const res = await api.put(`/api/posts/${id}`, payload)
       navigate(`/post/${res.data.id}`)
     } catch (err) {
       setError(err.response?.data?.detail || '保存失败')
@@ -73,15 +105,44 @@ export default function EditPost() {
           </div>
           <div className="form-group">
             <label>编辑原因 <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input 
-              className="form-control" 
-              value={editReason} 
-              onChange={(e) => setEditReason(e.target.value)} 
+            <input
+              className="form-control"
+              value={editReason}
+              onChange={(e) => setEditReason(e.target.value)}
               placeholder="请说明编辑原因（如：修正错别字、补充内容等）"
               maxLength={500}
               required={hasChanges}
             />
             <small style={{ color: 'var(--text-light)' }}>{editReason.length}/500</small>
+          </div>
+          <div className="form-group scheduled-publish-group">
+            <label className="scheduled-publish-label">
+              <input
+                type="checkbox"
+                checked={isScheduled}
+                onChange={(e) => {
+                  setIsScheduled(e.target.checked)
+                  if (!e.target.checked) setScheduledAt('')
+                }}
+              />
+              <span>定时发布</span>
+            </label>
+            {isScheduled && (
+              <div className="scheduled-datetime-picker">
+                <label>发布时间</label>
+                <input
+                  type="datetime-local"
+                  className="form-control"
+                  value={scheduledAt}
+                  min={getMinDatetime()}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  required
+                />
+                <small style={{ color: 'var(--text-light)', marginTop: 4, display: 'block' }}>
+                  帖子将在指定时间后才对其他用户可见
+                </small>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <button className="btn btn-primary" type="submit" disabled={saving}>

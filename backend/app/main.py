@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from fastapi import FastAPI
@@ -62,3 +63,57 @@ async def startup():
             await session.commit()
 
         await load_sensitive_words_from_db(session)
+
+
+async def _publish_scheduled_posts():
+    from datetime import datetime
+
+    from app.models import Post
+    from app.services.notification import create_mentions_and_notifications
+    from app.services.reputation import change_reputation
+
+    while True:
+        try:
+            async with async_session() as db:
+                now = datetime.utcnow()
+                result = await db.execute(
+                    select(Post).where(
+                        Post.scheduled_at.isnot(None),
+                        Post.scheduled_at <= now,
+                        Post.is_deleted == False,
+                    )
+                )
+                due_posts = result.scalars().all()
+
+                for post in due_posts:
+                    author_result = await db.execute(
+                        select(User).where(User.id == post.author_id)
+                    )
+                    author = author_result.scalar_one_or_none()
+                    if not author:
+                        continue
+
+                    await change_reputation(
+                        db,
+                        user_id=post.author_id,
+                        change=2,
+                        reason=f"定时帖子《{post.title}》已发布",
+                        reason_type="create_post",
+                        post_id=post.id,
+                    )
+
+                    await create_mentions_and_notifications(db, post, author, post.content)
+
+                    post.scheduled_at = None
+
+                if due_posts:
+                    await db.commit()
+        except Exception:
+            pass
+
+        await asyncio.sleep(30)
+
+
+@app.on_event("startup")
+async def start_scheduler():
+    asyncio.create_task(_publish_scheduled_posts())
