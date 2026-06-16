@@ -413,7 +413,7 @@ export default function Profile() {
                         </div>
                       </div>
                     </div>
-                    <div className="reward-record-amount rep-positive">+{r.amount}</div>
+                    <div className="reward-record-amount rep-positive">+{r.received_amount}</div>
                   </div>
                 ))}
               </div>

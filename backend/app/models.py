@@ -260,6 +260,7 @@ class Reward(Base):
     receiver_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
     amount: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    received_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     giver: Mapped["User"] = relationship("User", foreign_keys=[giver_id], lazy="selectin")

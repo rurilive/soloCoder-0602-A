@@ -42,6 +42,7 @@ async def reward_post(
         receiver_id=post.author_id,
         post_id=post_id,
         amount=2,
+        received_amount=1,
     )
     db.add(reward)
 
@@ -167,6 +168,7 @@ async def get_my_given_rewards(
                 receiver_id=r.receiver_id,
                 post_id=r.post_id,
                 amount=r.amount,
+                received_amount=r.received_amount,
                 giver=AuthorBrief(
                     id=r.giver.id,
                     username=r.giver.username,
@@ -224,6 +226,7 @@ async def get_my_received_rewards(
                 receiver_id=r.receiver_id,
                 post_id=r.post_id,
                 amount=r.amount,
+                received_amount=r.received_amount,
                 giver=AuthorBrief(
                     id=r.giver.id,
                     username=r.giver.username,

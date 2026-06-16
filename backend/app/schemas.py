@@ -468,6 +468,7 @@ class RewardResponse(BaseModel):
     receiver_id: int
     post_id: int
     amount: int
+    received_amount: int
     giver: AuthorBrief
     receiver: AuthorBrief
     post_title: str | None = None
