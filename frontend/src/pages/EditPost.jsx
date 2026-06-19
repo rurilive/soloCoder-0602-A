@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api'
 import MarkdownEditor from '../components/MarkdownEditor'
+import TagInput from '../components/TagInput'
 
 export default function EditPost() {
   const { id } = useParams()
@@ -17,6 +18,8 @@ export default function EditPost() {
   const [isScheduled, setIsScheduled] = useState(false)
   const [scheduledAt, setScheduledAt] = useState('')
   const [originalScheduledAt, setOriginalScheduledAt] = useState(null)
+  const [tags, setTags] = useState([])
+  const [originalTags, setOriginalTags] = useState([])
 
   useEffect(() => {
     api.get(`/api/posts/${id}`)
@@ -25,6 +28,9 @@ export default function EditPost() {
         setContent(res.data.content)
         setOriginalTitle(res.data.title)
         setOriginalContent(res.data.content)
+        const loadedTags = res.data.tags || []
+        setTags(loadedTags)
+        setOriginalTags(loadedTags)
         if (res.data.is_scheduled && res.data.scheduled_at) {
           setIsScheduled(true)
           const dt = new Date(res.data.scheduled_at)
@@ -37,7 +43,8 @@ export default function EditPost() {
       .finally(() => setLoading(false))
   }, [id])
 
-  const hasChanges = title !== originalTitle || content !== originalContent
+  const hasTagChanges = JSON.stringify(tags.map(t => t.name).sort()) !== JSON.stringify(originalTags.map(t => t.name).sort())
+  const hasChanges = title !== originalTitle || content !== originalContent || hasTagChanges
 
   const getMinDatetime = () => {
     const now = new Date()
@@ -78,6 +85,7 @@ export default function EditPost() {
       } else {
         payload.scheduled_at = 'UNCHANGED'
       }
+      payload.tag_names = tags.map((t) => t.name)
       const res = await api.put(`/api/posts/${id}`, payload)
       navigate(`/post/${res.data.id}`)
     } catch (err) {
@@ -102,6 +110,10 @@ export default function EditPost() {
           <div className="form-group">
             <label>内容</label>
             <MarkdownEditor value={content} onChange={setContent} />
+          </div>
+          <div className="form-group">
+            <label>标签</label>
+            <TagInput tags={tags} onChange={setTags} maxTags={5} />
           </div>
           <div className="form-group">
             <label>编辑原因 <span style={{ color: 'var(--danger)' }}>*</span></label>

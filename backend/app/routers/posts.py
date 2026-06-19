@@ -577,28 +577,43 @@ async def update_post(
 
     _is_mod = await is_moderator(db, current_user)
 
+    is_favorited = False
+    fav_result = await db.execute(
+        select(Favorite).where(
+            Favorite.user_id == current_user.id,
+            Favorite.post_id == post_id,
+        )
+    )
+    is_favorited = fav_result.scalar_one_or_none() is not None
+
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted and (_is_mod or not reply.is_hidden):
-            reply_responses.append(
-                ReplyResponse(
-                    id=reply.id,
-                    content=reply.content,
-                    post_id=reply.post_id,
-                    author_id=reply.author_id,
-                    author=AuthorBrief(
-                        id=reply.author.id,
-                        username=reply.author.username,
-                        avatar=reply.author.avatar,
-                        reputation=reply.author.reputation,
-                    ),
-                    parent_id=reply.parent_id,
-                    floor_number=reply.floor_number,
-                    is_deleted=reply.is_deleted,
-                    is_hidden=reply.is_hidden,
-                    created_at=reply.created_at,
-                )
+        if reply.is_deleted:
+            continue
+        if reply.is_hidden and not _is_mod:
+            continue
+        if reply.is_pending_review and not _is_mod and not (reply.author_id == current_user.id):
+            continue
+        reply_responses.append(
+            ReplyResponse(
+                id=reply.id,
+                content=reply.content,
+                post_id=reply.post_id,
+                author_id=reply.author_id,
+                author=AuthorBrief(
+                    id=reply.author.id,
+                    username=reply.author.username,
+                    avatar=reply.author.avatar,
+                    reputation=reply.author.reputation,
+                ),
+                parent_id=reply.parent_id,
+                floor_number=reply.floor_number,
+                is_deleted=reply.is_deleted,
+                is_hidden=reply.is_hidden,
+                is_pending_review=reply.is_pending_review,
+                created_at=reply.created_at,
             )
+        )
 
     return PostResponse(
         id=post.id,
@@ -615,13 +630,14 @@ async def update_post(
         is_pinned=post.is_pinned,
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
+        is_pending_review=post.is_pending_review,
         is_scheduled=_is_scheduled(post),
         scheduled_at=post.scheduled_at,
         view_count=post.view_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
         replies=reply_responses,
-        is_favorited=False,
+        is_favorited=is_favorited,
         tags=build_tag_briefs(post.tags),
     )
 
