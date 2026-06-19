@@ -3302,6 +3302,50 @@ textarea.form-control {
   opacity: 0.7;
 }
 
+.post-tag.tag-unchanged {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  text-decoration: none;
+}
+
+.post-tag.tag-added {
+  background: var(--success-light);
+  color: var(--success);
+  text-decoration: none;
+}
+
+.post-tag.tag-added::after {
+  content: " +";
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.post-tag.tag-removed {
+  background: var(--danger-light);
+  color: var(--danger);
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.revision-tags-container {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--bg-light);
+  border-radius: 6px;
+}
+
+.revision-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.revision-tags strong {
+  margin-right: 6px;
+  color: var(--text-dark);
+}
+
 /* Hot Tags / Tag Cloud */
 .hot-tags-section {
   background: var(--bg-white);

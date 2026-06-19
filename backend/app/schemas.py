@@ -348,6 +348,7 @@ class PostRevisionResponse(BaseModel):
     editor: AuthorBrief
     edit_reason: str | None = None
     version: int
+    tag_snapshot: list[str] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

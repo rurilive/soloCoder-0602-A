@@ -293,8 +293,12 @@ async def create_post(
     await db.flush()
     await db.refresh(post)
 
-    if post_data.tag_names:
+    if post_data.tag_names is not None and len(post_data.tag_names) > 0:
         await _set_post_tags(db, post.id, post_data.tag_names)
+
+    revision_tag_snapshot = None
+    if post_data.tag_names is not None:
+        revision_tag_snapshot = sorted([name.strip() for name in post_data.tag_names if name.strip()])
 
     revision = PostRevision(
         post_id=post.id,
@@ -303,6 +307,7 @@ async def create_post(
         editor_id=current_user.id,
         edit_reason=None,
         version=1,
+        tag_snapshot=revision_tag_snapshot,
     )
     db.add(revision)
 
@@ -533,6 +538,20 @@ async def update_post(
         else:
             revision_reason = "修改标签"
 
+        if post_data.tag_names is not None:
+            tag_snapshot = sorted([name.strip() for name in post_data.tag_names if name.strip()])
+        else:
+            tag_snapshot = None
+            tag_result = await db.execute(
+                select(Tag)
+                .join(PostTag, Tag.id == PostTag.tag_id)
+                .where(PostTag.post_id == post_id)
+                .order_by(Tag.name)
+            )
+            tags = tag_result.scalars().all()
+            if tags:
+                tag_snapshot = [tag.name for tag in tags]
+
         revision = PostRevision(
             post_id=post_id,
             title=new_title,
@@ -540,6 +559,7 @@ async def update_post(
             editor_id=current_user.id,
             edit_reason=revision_reason,
             version=next_version,
+            tag_snapshot=tag_snapshot,
         )
         db.add(revision)
         needs_commit = True
@@ -695,6 +715,7 @@ async def list_post_revisions(
                 ),
                 edit_reason=rev.edit_reason,
                 version=rev.version,
+                tag_snapshot=rev.tag_snapshot,
                 created_at=rev.created_at,
             )
         )

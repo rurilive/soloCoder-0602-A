@@ -236,9 +236,39 @@ function DiffViewer({ diff }) {
   )
 }
 
-function RevisionList({ revisions, onViewDiff, selectedOld, selectedNew, onSelectOld, onSelectNew }) {
+function RevisionList({ revisions, currentTags, onViewDiff, selectedOld, selectedNew, onSelectOld, onSelectNew }) {
   const { user } = useAuth()
   const maxVersion = revisions.length > 0 ? Math.max(...revisions.map(r => r.version)) : 0
+  const currentTagNames = (currentTags || []).map(t => t.name).sort()
+
+  const renderTagDiff = (snapshot) => {
+    if (!snapshot || snapshot.length === 0) {
+      return <em style={{ color: 'var(--text-light)' }}>无标签</em>
+    }
+    return (
+      <div className="revision-tags">
+        <strong>标签：</strong>
+        {snapshot.map((tagName) => {
+          const existsInCurrent = currentTagNames.includes(tagName)
+          return (
+            <span
+              key={tagName}
+              className={`post-tag ${existsInCurrent ? 'tag-unchanged' : 'tag-removed'}`}
+            >
+              <span className="tag-icon">#</span>
+              {tagName}
+            </span>
+          )
+        })}
+        {currentTagNames.filter(t => !snapshot.includes(t)).map((tagName) => (
+          <span key={tagName} className="post-tag tag-added">
+            <span className="tag-icon">#</span>
+            {tagName}
+          </span>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="revision-list">
@@ -318,6 +348,11 @@ function RevisionList({ revisions, onViewDiff, selectedOld, selectedNew, onSelec
                 {rev.edit_reason && (
                   <div className="revision-reason">
                     <strong>编辑原因：</strong>{rev.edit_reason}
+                  </div>
+                )}
+                {rev.tag_snapshot && (
+                  <div className="revision-tags-container">
+                    {renderTagDiff(rev.tag_snapshot)}
                   </div>
                 )}
                 <div className="revision-preview">
@@ -801,6 +836,7 @@ export default function PostDetail() {
               <>
                 <RevisionList 
                   revisions={revisions}
+                  currentTags={post?.tags}
                   onViewDiff={handleViewDiff}
                   selectedOld={selectedOldVersion}
                   selectedNew={selectedNewVersion}
