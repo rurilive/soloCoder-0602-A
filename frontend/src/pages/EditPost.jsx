@@ -85,7 +85,9 @@ export default function EditPost() {
       } else {
         payload.scheduled_at = 'UNCHANGED'
       }
-      payload.tag_names = tags.map((t) => t.name)
+      if (hasTagChanges) {
+        payload.tag_names = tags.map((t) => t.name)
+      }
       const res = await api.put(`/api/posts/${id}`, payload)
       navigate(`/post/${res.data.id}`)
     } catch (err) {

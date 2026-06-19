@@ -515,8 +515,10 @@ async def update_post(
         needs_commit = True
 
     content_changed = post_data.title is not None or post_data.content is not None
+    tags_changed = post_data.tag_names is not None
+    needs_revision = content_changed or tags_changed
 
-    if content_changed:
+    if needs_revision:
         max_version_result = await db.execute(
             select(func.max(PostRevision.version)).where(PostRevision.post_id == post_id)
         )
@@ -526,12 +528,17 @@ async def update_post(
         new_title = post_data.title if post_data.title is not None else post.title
         new_content = post_data.content if post_data.content is not None else post.content
 
+        if content_changed:
+            revision_reason = post_data.edit_reason
+        else:
+            revision_reason = "修改标签"
+
         revision = PostRevision(
             post_id=post_id,
             title=new_title,
             content=new_content,
             editor_id=current_user.id,
-            edit_reason=post_data.edit_reason,
+            edit_reason=revision_reason,
             version=next_version,
         )
         db.add(revision)
