@@ -13,6 +13,7 @@ from app.database import async_session, get_db
 from app.models import Favorite, Mention, Moderator, Post, PostRevision, PostTag, Reply, Section, Tag, User
 from app.schemas import (
     AuthorBrief,
+    build_tag_briefs,
     DiffOperation,
     DiffResponse,
     MentionResponse,
@@ -69,10 +70,6 @@ async def _set_post_tags(db: AsyncSession, post_id: int, tag_names: list[str]) -
 
         post_tag = PostTag(post_id=post_id, tag_id=tag.id)
         db.add(post_tag)
-
-
-def _build_tag_briefs(tags: list[Tag]) -> list[TagBrief]:
-    return [TagBrief(id=tag.id, name=tag.name) for tag in tags]
 
 
 async def _broadcast_post_edit(post_id: int, editor: User, edit_reason: str | None, new_title: str, new_content: str) -> None:
@@ -254,7 +251,7 @@ async def list_posts(
                 reply_count=reply_count,
                 created_at=post.created_at,
                 updated_at=post.updated_at,
-                tags=_build_tag_briefs(post.tags),
+                tags=build_tag_briefs(post.tags),
             )
         )
     return response
@@ -329,11 +326,14 @@ async def create_post(
         await auto_report_for_sensitive(db, current_user.id, "post", post.id, hit_words)
 
     result = await db.execute(
-        select(Post).where(Post.id == post.id).options(
+        select(Post)
+        .where(Post.id == post.id)
+        .options(
             selectinload(Post.author),
             selectinload(Post.replies),
             selectinload(Post.tags),
         )
+        .execution_options(populate_existing=True)
     )
     post = result.scalar_one()
 
@@ -360,7 +360,7 @@ async def create_post(
         updated_at=post.updated_at,
         replies=[],
         is_favorited=False,
-        tags=_build_tag_briefs(post.tags),
+        tags=build_tag_briefs(post.tags),
     )
 
 
@@ -469,7 +469,7 @@ async def get_post(
         updated_at=post.updated_at,
         replies=reply_responses,
         is_favorited=is_favorited,
-        tags=_build_tag_briefs(post.tags),
+        tags=build_tag_briefs(post.tags),
     )
 
 
@@ -490,11 +490,14 @@ async def update_post(
     if post.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="只能编辑自己的帖子")
 
+    needs_commit = False
+
     if post_data.scheduled_at != "UNCHANGED":
         if post_data.scheduled_at is not None and post_data.scheduled_at <= datetime.utcnow():
             raise HTTPException(status_code=400, detail="定时发布时间必须为未来时间")
         was_scheduled = _is_scheduled(post)
         post.scheduled_at = post_data.scheduled_at
+        needs_commit = True
         if was_scheduled and post_data.scheduled_at is None and not post.is_pending_review:
             await change_reputation(
                 db,
@@ -507,7 +510,13 @@ async def update_post(
             await db.flush()
             await create_mentions_and_notifications(db, post, current_user, post.content)
 
-    if post_data.title is not None or post_data.content is not None:
+    if post_data.tag_names is not None:
+        await _set_post_tags(db, post.id, post_data.tag_names)
+        needs_commit = True
+
+    content_changed = post_data.title is not None or post_data.content is not None
+
+    if content_changed:
         max_version_result = await db.execute(
             select(func.max(PostRevision.version)).where(PostRevision.post_id == post_id)
         )
@@ -526,7 +535,14 @@ async def update_post(
             version=next_version,
         )
         db.add(revision)
+        needs_commit = True
 
+        if post_data.title is not None:
+            post.title = post_data.title
+        if post_data.content is not None:
+            post.content = post_data.content
+
+    if needs_commit:
         try:
             await db.commit()
         except IntegrityError:
@@ -536,23 +552,9 @@ async def update_post(
                 detail="版本冲突：该帖子正被其他人同时编辑，请刷新后重试",
             )
 
-        if post_data.title is not None:
-            post.title = post_data.title
-        if post_data.content is not None:
-            post.content = post_data.content
-
-        await db.commit()
-    else:
-        if post_data.title is not None:
-            post.title = post_data.title
-        if post_data.content is not None:
-            post.content = post_data.content
-        if post_data.title is not None or post_data.content is not None:
-            await db.commit()
-
     await db.refresh(post)
 
-    if post_data.title is not None or post_data.content is not None:
+    if content_changed:
         await _broadcast_post_edit(
             post_id=post_id,
             editor=current_user,
@@ -567,15 +569,17 @@ async def update_post(
         .options(
             selectinload(Post.author),
             selectinload(Post.replies).selectinload(Reply.author),
+            selectinload(Post.tags),
         )
+        .execution_options(populate_existing=True)
     )
     post = result.scalar_one()
 
-    is_moderator = await is_moderator(db, current_user)
+    _is_mod = await is_moderator(db, current_user)
 
     reply_responses = []
     for reply in post.replies:
-        if not reply.is_deleted and (is_moderator or not reply.is_hidden):
+        if not reply.is_deleted and (_is_mod or not reply.is_hidden):
             reply_responses.append(
                 ReplyResponse(
                     id=reply.id,
@@ -617,6 +621,8 @@ async def update_post(
         created_at=post.created_at,
         updated_at=post.updated_at,
         replies=reply_responses,
+        is_favorited=False,
+        tags=build_tag_briefs(post.tags),
     )
 
 
@@ -1211,7 +1217,7 @@ async def search_posts(
                 reply_count=reply_count,
                 created_at=post.created_at,
                 updated_at=post.updated_at,
-                tags=_build_tag_briefs(post.tags),
+                tags=build_tag_briefs(post.tags),
             )
         )
 

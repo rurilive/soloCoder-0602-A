@@ -77,6 +77,7 @@ class PostUpdate(BaseModel):
     content: str | None = None
     edit_reason: str | None = None
     scheduled_at: datetime | None | str = "UNCHANGED"
+    tag_names: list[str] | None = None
 
 
 class AuthorBrief(BaseModel):
@@ -93,6 +94,10 @@ class TagBrief(BaseModel):
     name: str
 
     model_config = {"from_attributes": True}
+
+
+def build_tag_briefs(tags: list) -> list["TagBrief"]:
+    return [TagBrief(id=tag.id, name=tag.name) for tag in tags]
 
 
 class ReplyResponse(BaseModel):
