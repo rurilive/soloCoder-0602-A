@@ -10,7 +10,7 @@ from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from app.auth import SECRET_KEY, ALGORITHM, get_current_user, get_optional_current_user, is_moderator
 from app.database import async_session, get_db
-from app.models import Favorite, Mention, Moderator, Post, PostRevision, Reply, Section, User
+from app.models import Favorite, Mention, Moderator, Post, PostRevision, PostTag, Reply, Section, Tag, User
 from app.schemas import (
     AuthorBrief,
     DiffOperation,
@@ -29,6 +29,7 @@ from app.schemas import (
     ReplyCreate,
     ReplyResponse,
     SectionBrief,
+    TagBrief,
 )
 from app.services.notification import create_mentions_and_notifications
 from app.services.reputation import change_reputation
@@ -42,6 +43,36 @@ post_watchers: dict[int, list[WebSocket]] = {}
 
 def _is_scheduled(post: Post) -> bool:
     return post.scheduled_at is not None and post.scheduled_at > datetime.utcnow()
+
+
+async def _set_post_tags(db: AsyncSession, post_id: int, tag_names: list[str]) -> None:
+    unique_names = list(dict.fromkeys([name.strip() for name in tag_names if name.strip()]))
+    if len(unique_names) > 5:
+        raise HTTPException(status_code=400, detail="最多只能添加 5 个标签")
+
+    for name in unique_names:
+        if len(name) < 2 or len(name) > 20:
+            raise HTTPException(status_code=400, detail="标签名长度必须在 2-20 个字符之间")
+
+    await db.execute(
+        PostTag.__table__.delete().where(PostTag.post_id == post_id)
+    )
+
+    for name in unique_names:
+        result = await db.execute(select(Tag).where(Tag.name == name))
+        tag = result.scalar_one_or_none()
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            await db.flush()
+            await db.refresh(tag)
+
+        post_tag = PostTag(post_id=post_id, tag_id=tag.id)
+        db.add(post_tag)
+
+
+def _build_tag_briefs(tags: list[Tag]) -> list[TagBrief]:
+    return [TagBrief(id=tag.id, name=tag.name) for tag in tags]
 
 
 async def _broadcast_post_edit(post_id: int, editor: User, edit_reason: str | None, new_title: str, new_content: str) -> None:
@@ -189,7 +220,7 @@ async def list_posts(
         .order_by(Post.is_pinned.desc(), Post.created_at.desc())
         .offset(skip)
         .limit(limit)
-        .options(selectinload(Post.author))
+        .options(selectinload(Post.author), selectinload(Post.tags))
     )
     result = await db.execute(stmt)
     posts = result.scalars().all()
@@ -223,6 +254,7 @@ async def list_posts(
                 reply_count=reply_count,
                 created_at=post.created_at,
                 updated_at=post.updated_at,
+                tags=_build_tag_briefs(post.tags),
             )
         )
     return response
@@ -264,6 +296,9 @@ async def create_post(
     await db.flush()
     await db.refresh(post)
 
+    if post_data.tag_names:
+        await _set_post_tags(db, post.id, post_data.tag_names)
+
     revision = PostRevision(
         post_id=post.id,
         title=post.title,
@@ -294,7 +329,11 @@ async def create_post(
         await auto_report_for_sensitive(db, current_user.id, "post", post.id, hit_words)
 
     result = await db.execute(
-        select(Post).where(Post.id == post.id).options(selectinload(Post.author), selectinload(Post.replies))
+        select(Post).where(Post.id == post.id).options(
+            selectinload(Post.author),
+            selectinload(Post.replies),
+            selectinload(Post.tags),
+        )
     )
     post = result.scalar_one()
 
@@ -321,6 +360,7 @@ async def create_post(
         updated_at=post.updated_at,
         replies=[],
         is_favorited=False,
+        tags=_build_tag_briefs(post.tags),
     )
 
 
@@ -362,6 +402,7 @@ async def get_post(
         .options(
             selectinload(Post.author),
             selectinload(Post.replies).selectinload(Reply.author),
+            selectinload(Post.tags),
         )
     )
     post = result.scalar_one()
@@ -428,6 +469,7 @@ async def get_post(
         updated_at=post.updated_at,
         replies=reply_responses,
         is_favorited=is_favorited,
+        tags=_build_tag_briefs(post.tags),
     )
 
 
@@ -1136,7 +1178,7 @@ async def search_posts(
         .join(filtered_posts, Post.id == filtered_posts.c.fp_id)
         .join(Post.author, isouter=True)
         .join(Post.section, isouter=True)
-        .options(contains_eager(Post.author), contains_eager(Post.section))
+        .options(contains_eager(Post.author), contains_eager(Post.section), selectinload(Post.tags))
         .order_by(Post.created_at.desc())
     )
 
@@ -1169,6 +1211,7 @@ async def search_posts(
                 reply_count=reply_count,
                 created_at=post.created_at,
                 updated_at=post.updated_at,
+                tags=_build_tag_briefs(post.tags),
             )
         )
 

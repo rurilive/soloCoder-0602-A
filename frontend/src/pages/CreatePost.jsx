@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api, { createPoll } from '../api'
 import MarkdownEditor from '../components/MarkdownEditor'
+import TagInput from '../components/TagInput'
 
 export default function CreatePost() {
   const { sectionId } = useParams()
@@ -20,6 +21,7 @@ export default function CreatePost() {
   const [createdPostData, setCreatedPostData] = useState(null)
   const [pollError, setPollError] = useState('')
   const [pollRetrying, setPollRetrying] = useState(false)
+  const [tags, setTags] = useState([])
 
   const addPollOption = () => {
     if (pollOptions.length >= 20) return
@@ -94,6 +96,7 @@ export default function CreatePost() {
       if (isScheduled && scheduledAt) {
         payload.scheduled_at = new Date(scheduledAt).toISOString()
       }
+      payload.tag_names = tags.map((t) => t.name)
       const res = await api.post(`/api/sections/${sectionId}/posts`, payload)
       const postId = res.data.id
 
@@ -169,6 +172,10 @@ export default function CreatePost() {
           <div className="form-group">
             <label>内容</label>
             <MarkdownEditor value={content} onChange={setContent} />
+          </div>
+          <div className="form-group">
+            <label>标签</label>
+            <TagInput tags={tags} onChange={setTags} maxTags={5} />
           </div>
           <div className="form-group scheduled-publish-group">
             <label className="scheduled-publish-label">

@@ -57,6 +57,12 @@ class Post(Base):
     section: Mapped["Section"] = relationship("Section", back_populates="posts")
     author: Mapped["User"] = relationship("User", back_populates="posts")
     replies: Mapped[list["Reply"]] = relationship("Reply", back_populates="post", lazy="selectin")
+    tags: Mapped[list["Tag"]] = relationship(
+        "Tag",
+        secondary="post_tags",
+        back_populates="posts",
+        lazy="selectin",
+    )
 
 
 class Reply(Base):
@@ -324,3 +330,30 @@ class PollVote(Base):
     poll: Mapped["Poll"] = relationship("Poll", lazy="selectin")
     option: Mapped["PollOption"] = relationship("PollOption", back_populates="votes")
     user: Mapped["User"] = relationship("User", lazy="selectin")
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    posts: Mapped[list["Post"]] = relationship(
+        "Post",
+        secondary="post_tags",
+        back_populates="tags",
+        lazy="selectin",
+    )
+
+
+class PostTag(Base):
+    __tablename__ = "post_tags"
+    __table_args__ = (
+        UniqueConstraint("post_id", "tag_id", name="uq_post_tag_post_tag"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

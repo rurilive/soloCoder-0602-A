@@ -710,6 +710,16 @@ export default function PostDetail() {
             <span>{new Date(post.created_at).toLocaleString()}</span>
             <span>👁 {post.view_count} 次浏览</span>
           </div>
+          {post.tags && post.tags.length > 0 && (
+            <div className="post-tags">
+              {post.tags.map((tag) => (
+                <span key={tag.id} className="post-tag">
+                  <span className="tag-icon">#</span>
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="post-detail-actions">
             {canReward && (
               <button

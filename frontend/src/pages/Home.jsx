@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import api, { getFeed } from '../api'
+import api, { getFeed, getHotTags, getPostsByTag } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatTime } from '../utils/notification'
 
@@ -23,6 +23,11 @@ export default function Home() {
 
   const [latestPosts, setLatestPosts] = useState([])
   const [latestLoading, setLatestLoading] = useState(false)
+  const [hotTags, setHotTags] = useState([])
+  const [hotTagsLoading, setHotTagsLoading] = useState(false)
+  const [selectedTag, setSelectedTag] = useState(null)
+  const [tagPosts, setTagPosts] = useState([])
+  const [tagPostsLoading, setTagPostsLoading] = useState(false)
 
   useEffect(() => {
     fetchSections()
@@ -48,8 +53,9 @@ export default function Home() {
   useEffect(() => {
     if (activeTab === 'latest') {
       fetchLatestPosts()
+      fetchHotTags()
     }
-  }, [activeTab])
+  }, [activeTab, fetchHotTags])
 
   const fetchFeedItems = useCallback(async (cursor = null) => {
     setFeedLoading(true)
@@ -78,6 +84,40 @@ export default function Home() {
       setLatestPosts([])
     } finally {
       setLatestLoading(false)
+    }
+  }
+
+  const fetchHotTags = useCallback(async () => {
+    setHotTagsLoading(true)
+    try {
+      const res = await getHotTags(20)
+      setHotTags(res.data || [])
+    } catch {
+      setHotTags([])
+    } finally {
+      setHotTagsLoading(false)
+    }
+  }, [])
+
+  const fetchTagPosts = async (tagId) => {
+    setTagPostsLoading(true)
+    try {
+      const res = await getPostsByTag(tagId, 0, PAGE_SIZE)
+      setTagPosts(res.data.items || [])
+    } catch {
+      setTagPosts([])
+    } finally {
+      setTagPostsLoading(false)
+    }
+  }
+
+  const handleTagClick = (tag) => {
+    if (selectedTag?.id === tag.id) {
+      setSelectedTag(null)
+      setTagPosts([])
+    } else {
+      setSelectedTag(tag)
+      fetchTagPosts(tag.id)
     }
   }
 
@@ -174,34 +214,116 @@ export default function Home() {
 
       {activeTab === 'latest' && (
         <div>
-          {latestLoading ? (
-            <div className="loading">加载中...</div>
-          ) : latestPosts.length === 0 ? (
-            <div className="empty-state"><p>暂无帖子</p></div>
-          ) : (
-            latestPosts.map((post) => (
-              <div key={`latest-${post.id}`} className="feed-card feed-card-post">
-                <div className="feed-card-header">
-                  <div className="feed-card-author">
-                    <span className="avatar avatar-sm">
-                      {post.author?.avatar ? <img src={post.author.avatar} alt="" /> : post.author?.username?.[0] || '?'}
-                    </span>
-                    <span className="feed-author-name">{post.author?.username || '未知'}</span>
-                    {post.section && <span className="section-tag">{post.section.name}</span>}
-                  </div>
-                  <span className="feed-card-time">{formatTime(post.created_at)}</span>
-                </div>
-                <div className="feed-card-title">
-                  <Link to={`/post/${post.id}`}>{post.title}</Link>
-                </div>
-                {post.content && (
-                  <div className="feed-card-summary">{post.content.slice(0, 120)}{post.content.length > 120 ? '...' : ''}</div>
-                )}
-                <div className="feed-card-stats">
-                  <span>💬 {post.reply_count ?? 0}</span>
-                </div>
+          {!hotTagsLoading && hotTags.length > 0 && (
+            <div className="hot-tags-section">
+              <div className="hot-tags-header">
+                <h3>🔥 热门标签</h3>
               </div>
-            ))
+              <div className="tag-cloud">
+                {hotTags.map((tag) => {
+                  const size = Math.min(Math.max(12 + tag.post_count * 0.5, 12), 22)
+                  const isSelected = selectedTag?.id === tag.id
+                  return (
+                    <span
+                      key={tag.id}
+                      className={`tag-cloud-item ${isSelected ? 'selected' : ''}`}
+                      style={{ fontSize: `${size}px` }}
+                      onClick={() => handleTagClick(tag)}
+                      title={`${tag.name} (${tag.post_count}篇帖子)`}
+                    >
+                      #{tag.name}
+                      <span className="tag-count">({tag.post_count})</span>
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {selectedTag ? (
+            <div>
+              <div className="tag-filter-header">
+                <h3>
+                  <span className="tag-filter-name">#{selectedTag.name}</span>
+                  <span className="tag-filter-clear" onClick={() => setSelectedTag(null)}>× 清除筛选</span>
+                </h3>
+              </div>
+              {tagPostsLoading ? (
+                <div className="loading">加载中...</div>
+              ) : tagPosts.length === 0 ? (
+                <div className="empty-state"><p>该标签下暂无帖子</p></div>
+              ) : (
+                tagPosts.map((post) => (
+                  <div key={`tag-${post.id}`} className="feed-card feed-card-post">
+                    <div className="feed-card-header">
+                      <div className="feed-card-author">
+                        <span className="avatar avatar-sm">
+                          {post.author?.avatar ? <img src={post.author.avatar} alt="" /> : post.author?.username?.[0] || '?'}
+                        </span>
+                        <span className="feed-author-name">{post.author?.username || '未知'}</span>
+                        {post.section && <span className="section-tag">{post.section.name}</span>}
+                      </div>
+                      <span className="feed-card-time">{formatTime(post.created_at)}</span>
+                    </div>
+                    <div className="feed-card-title">
+                      <Link to={`/post/${post.id}`}>{post.title}</Link>
+                    </div>
+                    {post.content && (
+                      <div className="feed-card-summary">{post.content.slice(0, 120)}{post.content.length > 120 ? '...' : ''}</div>
+                    )}
+                    {post.tags && post.tags.length > 0 && (
+                      <div className="feed-card-tags">
+                        {post.tags.map((tag) => (
+                          <span key={tag.id} className="feed-card-tag">#{tag.name}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="feed-card-stats">
+                      <span>💬 {post.reply_count ?? 0}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div>
+              {latestLoading ? (
+                <div className="loading">加载中...</div>
+              ) : latestPosts.length === 0 ? (
+                <div className="empty-state"><p>暂无帖子</p></div>
+              ) : (
+                latestPosts.map((post) => (
+                  <div key={`latest-${post.id}`} className="feed-card feed-card-post">
+                    <div className="feed-card-header">
+                      <div className="feed-card-author">
+                        <span className="avatar avatar-sm">
+                          {post.author?.avatar ? <img src={post.author.avatar} alt="" /> : post.author?.username?.[0] || '?'}
+                        </span>
+                        <span className="feed-author-name">{post.author?.username || '未知'}</span>
+                        {post.section && <span className="section-tag">{post.section.name}</span>}
+                      </div>
+                      <span className="feed-card-time">{formatTime(post.created_at)}</span>
+                    </div>
+                    <div className="feed-card-title">
+                      <Link to={`/post/${post.id}`}>{post.title}</Link>
+                    </div>
+                    {post.content && (
+                      <div className="feed-card-summary">{post.content.slice(0, 120)}{post.content.length > 120 ? '...' : ''}</div>
+                    )}
+                    {post.tags && post.tags.length > 0 && (
+                      <div className="feed-card-tags">
+                        {post.tags.map((tag) => (
+                          <span key={tag.id} className="feed-card-tag">#{tag.name}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="feed-card-stats">
+                      <span>💬 {post.reply_count ?? 0}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </div>
       )}

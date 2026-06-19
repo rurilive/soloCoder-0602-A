@@ -69,6 +69,7 @@ class PostCreate(BaseModel):
     title: str
     content: str
     scheduled_at: datetime | None = None
+    tag_names: list[str] = []
 
 
 class PostUpdate(BaseModel):
@@ -83,6 +84,13 @@ class AuthorBrief(BaseModel):
     username: str
     avatar: str | None = None
     reputation: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class TagBrief(BaseModel):
+    id: int
+    name: str
 
     model_config = {"from_attributes": True}
 
@@ -125,6 +133,7 @@ class PostResponse(BaseModel):
     updated_at: datetime
     replies: list[ReplyResponse] = []
     is_favorited: bool = False
+    tags: list[TagBrief] = []
 
     model_config = {"from_attributes": True}
 
@@ -143,6 +152,7 @@ class PostListResponse(BaseModel):
     reply_count: int = 0
     created_at: datetime
     updated_at: datetime
+    tags: list[TagBrief] = []
 
     model_config = {"from_attributes": True}
 
@@ -192,6 +202,7 @@ class PostSearchItem(BaseModel):
     reply_count: int = 0
     created_at: datetime
     updated_at: datetime
+    tags: list[TagBrief] = []
 
     model_config = {"from_attributes": True}
 
@@ -588,3 +599,30 @@ class PollResponse(BaseModel):
 
 class PollVoteCreate(BaseModel):
     option_ids: list[int]
+
+
+class TagCreate(BaseModel):
+    name: str
+
+
+class TagUpdate(BaseModel):
+    name: str | None = None
+
+
+class TagResponse(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TagWithPostCount(TagResponse):
+    post_count: int = 0
+
+
+class PaginatedTagsResponse(BaseModel):
+    items: list[TagWithPostCount]
+    total: int
+    skip: int
+    limit: int

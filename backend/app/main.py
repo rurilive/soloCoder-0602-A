@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.auth import get_password_hash
 from app.database import Base, async_session, engine
 from app.models import SensitiveWord, User
-from app.routers import admin, auth, chat, follows, notifications, polls, posts, reports, rewards, sections, upload, users
+from app.routers import admin, auth, chat, follows, notifications, polls, posts, reports, rewards, sections, tags, upload, users
 from app.utils.sensitive_words import DEFAULT_SENSITIVE_WORDS, load_sensitive_words_from_db
 
 app = FastAPI(title="Forum API", version="1.0.0")
@@ -38,6 +38,7 @@ app.include_router(reports.router)
 app.include_router(rewards.router)
 app.include_router(follows.router)
 app.include_router(polls.router)
+app.include_router(tags.router)
 
 
 @app.on_event("startup")

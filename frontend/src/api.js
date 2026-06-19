@@ -153,4 +153,28 @@ export const createPoll = (postId, data) =>
 export const votePoll = (postId, optionIds) =>
   api.post(`/api/posts/${postId}/poll/vote`, { option_ids: optionIds })
 
+export const searchTags = (q, limit = 10) =>
+  api.get('/api/tags/search', { params: { q, limit } })
+
+export const getHotTags = (limit = 20) =>
+  api.get('/api/tags/hot', { params: { limit } })
+
+export const getTag = (tagId) =>
+  api.get(`/api/tags/${tagId}`)
+
+export const getPostsByTag = (tagId, skip = 0, limit = 20) =>
+  api.get(`/api/tags/${tagId}/posts`, { params: { skip, limit } })
+
+export const listTags = (skip = 0, limit = 20, keyword = null, sortBy = 'created_at') =>
+  api.get('/api/tags/', { params: { skip, limit, keyword, sort_by: sortBy } })
+
+export const createTag = (name) =>
+  api.post('/api/tags/', { name })
+
+export const updateTag = (tagId, name = null) =>
+  api.put(`/api/tags/${tagId}`, { name })
+
+export const deleteTag = (tagId) =>
+  api.delete(`/api/tags/${tagId}`)
+
 export default api
