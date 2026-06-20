@@ -363,7 +363,7 @@ async def revoke_token(
 ) -> RevokeTokenResult:
     payload = await verify_token(token, expected_type=None, db=db)
     if payload is None:
-        return RevokeTokenResult(success=True, revoked_count=0)
+        return RevokeTokenResult(success=False, error="token_client_mismatch")
 
     token_client_id = payload.get("client_id")
     if token_client_id and token_client_id != client_id:

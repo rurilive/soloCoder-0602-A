@@ -186,9 +186,8 @@ async def main():
                 "client_secret": client_secret,
             },
         )
-        await log(f"撤销无效 token (应200): {r.status_code} - {r.text[:200]}")
-        assert r.status_code == 200, f"撤销无效 token 应返回 200 (RFC7009): {r.text}"
-        assert r.json()["revoked_count"] == 0, "revoked_count 应为 0"
+        await log(f"撤销无效 token (应403, 与归属不匹配一致): {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 403, f"撤销无效 token 应返回 403 (防止枚举): {r.text}"
 
         r = await client.post(
             f"{BACKEND}/revoke",
@@ -239,9 +238,8 @@ async def main():
                 "client_secret": client_secret,
             },
         )
-        await log(f"重复撤销已撤销的 access (应200, count=0): {r.status_code} - {r.text[:200]}")
-        assert r.status_code == 200, f"重复撤销应返回 200 (RFC7009): {r.text}"
-        assert r.json()["revoked_count"] == 0, "重复撤销 revoked_count 应为 0"
+        await log(f"重复撤销已撤销的 access (应403, 与归属不匹配一致): {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 403, f"重复撤销应返回 403 (防止枚举): {r.text}"
 
         await log("\n✅ Access Token 撤销功能验证通过!")
 

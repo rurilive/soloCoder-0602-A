@@ -152,6 +152,8 @@ export default function TestOAuth() {
     if (selectedClient) {
       localStorage.setItem(STORAGE_KEYS.SELECTED_CLIENT_ID, selectedClient.client_id)
     }
+    setAccessTokenRevoked(false)
+    setRefreshTokenRevoked(false)
   }, [selectedClient])
 
   useEffect(() => {
