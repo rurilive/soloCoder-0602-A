@@ -1247,15 +1247,24 @@ async def search_posts(
     count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
 
-    reply_count_where = [
-        Reply.is_deleted == False,
-        Post.is_deleted == False,
-    ]
+    filtered_posts = (
+        select(
+            Post.id.label("fp_id"),
+            Post.author_id.label("fp_author_id"),
+        )
+        .where(*base_where)
+        .order_by(Post.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .subquery()
+    )
+
+    reply_count_where = [Reply.is_deleted == False]
     if not is_mod:
         if current_user is not None:
             reply_count_where.append(
                 or_(
-                    Post.author_id == current_user.id,
+                    filtered_posts.c.fp_author_id == current_user.id,
                     Reply.is_private == False,
                     Reply.author_id == current_user.id,
                 )
@@ -1268,28 +1277,24 @@ async def search_posts(
             Reply.post_id.label("rc_post_id"),
             func.count(Reply.id).label("rc_count"),
         )
-        .join(Post, Reply.post_id == Post.id)
+        .join(filtered_posts, Reply.post_id == filtered_posts.c.fp_id)
         .where(*reply_count_where)
         .group_by(Reply.post_id)
         .subquery()
     )
 
-    filtered_posts = (
+    filtered_posts_with_count = (
         select(
-            Post.id.label("fp_id"),
+            filtered_posts.c.fp_id,
             func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"),
         )
-        .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
-        .where(*base_where)
-        .order_by(Post.created_at.desc())
-        .offset(skip)
-        .limit(limit)
+        .join(reply_count_subq, filtered_posts.c.fp_id == reply_count_subq.c.rc_post_id, isouter=True)
         .subquery()
     )
 
     stmt = (
-        select(Post, filtered_posts.c.reply_count)
-        .join(filtered_posts, Post.id == filtered_posts.c.fp_id)
+        select(Post, filtered_posts_with_count.c.reply_count)
+        .join(filtered_posts_with_count, Post.id == filtered_posts_with_count.c.fp_id)
         .join(Post.author, isouter=True)
         .join(Post.section, isouter=True)
         .options(contains_eager(Post.author), contains_eager(Post.section), selectinload(Post.tags))
