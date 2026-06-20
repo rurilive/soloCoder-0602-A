@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 
-from ..core import get_db
+from ..core import get_db, compute_code_challenge_s256
 from ..schemas import (
     TokenRequest,
     TokenResponse,
@@ -38,6 +38,8 @@ async def authorize_endpoint(
     redirect_uri: str,
     scope: str | None = None,
     state: str | None = None,
+    code_challenge: str | None = None,
+    code_challenge_method: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     if response_type != "code":
@@ -64,6 +66,15 @@ async def authorize_endpoint(
             detail="Invalid redirect_uri",
         )
 
+    if code_challenge and not code_challenge_method:
+        code_challenge_method = "S256"
+
+    if code_challenge_method and code_challenge_method not in ("S256", "plain"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid code_challenge_method. Only 'S256' and 'plain' are supported.",
+        )
+
     return templates.TemplateResponse(
         "authorize.html",
         {
@@ -72,6 +83,8 @@ async def authorize_endpoint(
             "redirect_uri": redirect_uri,
             "scope": scope or "read write",
             "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
         },
     )
 
@@ -89,6 +102,8 @@ async def authorize_submit(
     username = form.get("username")
     password = form.get("password")
     action = form.get("action")
+    code_challenge = form.get("code_challenge") or None
+    code_challenge_method = form.get("code_challenge_method") or None
 
     if not client_id or not redirect_uri:
         raise HTTPException(
@@ -118,12 +133,20 @@ async def authorize_submit(
                 "redirect_uri": redirect_uri,
                 "scope": scope or "read write",
                 "state": state,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
                 "error": "Invalid username or password",
             },
         )
 
     auth_code = await create_authorization_code_record(
-        db, client_id, db_user.id, redirect_uri, scope
+        db,
+        client_id,
+        db_user.id,
+        redirect_uri,
+        scope,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
     )
 
     from urllib.parse import urlencode
@@ -137,7 +160,7 @@ async def authorize_submit(
     )
 
 
-@router.post("/token", response_model=TokenResponse)
+@router.post("/token")
 async def token_endpoint(
     grant_type: str = Form(...),
     code: str | None = Form(None),
@@ -145,8 +168,9 @@ async def token_endpoint(
     client_id: str = Form(...),
     client_secret: str = Form(...),
     refresh_token: str | None = Form(None),
+    code_verifier: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
+):
     if grant_type == "authorization_code":
         if not code or not redirect_uri:
             raise HTTPException(
@@ -155,20 +179,21 @@ async def token_endpoint(
             )
 
         result = await exchange_authorization_code(
-            db, client_id, client_secret, code, redirect_uri
+            db, client_id, client_secret, code, redirect_uri, code_verifier
         )
         if result is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid authorization code or client credentials",
+                detail="Invalid authorization code, client credentials, or PKCE verification failed",
             )
 
-        access_token, refresh_token_val, expires_in, scope = result
+        access_token, refresh_token_val, expires_in, scope, token_family_id = result
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token_val,
             expires_in=expires_in,
             scope=scope,
+            token_family_id=token_family_id,
         )
 
     elif grant_type == "refresh_token":
@@ -187,12 +212,20 @@ async def token_endpoint(
                 detail="Invalid refresh token or client credentials",
             )
 
-        access_token, new_refresh_token, expires_in, scope = result
+        new_access_token, new_refresh_token, expires_in, scope, token_family_id, replay_detected = result
+
+        if replay_detected:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Replay attack detected: refresh token has been revoked. All tokens in this family have been invalidated.",
+            )
+
         return TokenResponse(
-            access_token=access_token,
+            access_token=new_access_token,
             refresh_token=new_refresh_token,
             expires_in=expires_in,
             scope=scope,
+            token_family_id=token_family_id,
         )
 
     else:
@@ -221,3 +254,17 @@ async def userinfo_endpoint(
         "username": current_user.username,
         "email": current_user.email,
     }
+
+
+@router.get("/.well-known/pkce-challenge", tags=["Debug"])
+async def pkce_challenge_endpoint(code_verifier: str, method: str = "S256"):
+    try:
+        if method == "S256":
+            challenge = compute_code_challenge_s256(code_verifier)
+        elif method == "plain":
+            challenge = code_verifier
+        else:
+            raise HTTPException(status_code=400, detail="Invalid method")
+        return {"code_verifier": code_verifier, "code_challenge": challenge, "method": method}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

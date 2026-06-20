@@ -207,6 +207,12 @@
             {% if state %}
             <input type="hidden" name="state" value="{{ state }}">
             {% endif %}
+            {% if code_challenge %}
+            <input type="hidden" name="code_challenge" value="{{ code_challenge }}">
+            {% endif %}
+            {% if code_challenge_method %}
+            <input type="hidden" name="code_challenge_method" value="{{ code_challenge_method }}">
+            {% endif %}
 
             <div class="form-group">
                 <label for="username">用户名</label>

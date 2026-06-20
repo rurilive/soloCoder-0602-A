@@ -11,6 +11,9 @@ const STORAGE_KEYS = {
   LOG: 'oauth_test_log',
   CLIENT_SECRET_PREFIX: 'client_secret_',
   OAUTH_STATE: 'oauth_test_state',
+  CODE_VERIFIER: 'oauth_test_code_verifier',
+  PKCE_ENABLED: 'oauth_test_pkce_enabled',
+  REPLAY_DETECTED: 'oauth_test_replay_detected',
 }
 
 const getClientSecret = (clientId: string): string | null => {
@@ -29,6 +32,37 @@ const enrichClientWithSecret = (client: Client): Client => {
   return client
 }
 
+const PKCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
+
+const generateCodeVerifier = (length: number = 64): string => {
+  const array = new Uint8Array(length)
+  crypto.getRandomValues(array)
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += PKCE_ALPHABET[array[i] % PKCE_ALPHABET.length]
+  }
+  return result
+}
+
+const base64UrlEncode = (arrayBuffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(arrayBuffer)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
+const computeCodeChallengeS256 = async (codeVerifier: string): Promise<string> => {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(codeVerifier)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return base64UrlEncode(digest)
+}
+
 export default function TestOAuth() {
   const [clients, setClients] = useState<Client[]>([])
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
@@ -40,6 +74,8 @@ export default function TestOAuth() {
   const [error, setError] = useState('')
   const [log, setLog] = useState<string[]>([])
   const [isInitialized, setIsInitialized] = useState(false)
+  const [pkceEnabled, setPkceEnabled] = useState(true)
+  const [replayDetected, setReplayDetected] = useState(false)
 
   const redirectUri = 'http://localhost:1112/test'
 
@@ -91,6 +127,16 @@ export default function TestOAuth() {
           setLog(JSON.parse(savedLog))
         }
 
+        const savedPkce = localStorage.getItem(STORAGE_KEYS.PKCE_ENABLED)
+        if (savedPkce !== null) {
+          setPkceEnabled(savedPkce === 'true')
+        }
+
+        const savedReplay = localStorage.getItem(STORAGE_KEYS.REPLAY_DETECTED)
+        if (savedReplay !== null) {
+          setReplayDetected(savedReplay === 'true')
+        }
+
         setIsInitialized(true)
       } catch (err: any) {
         addLog('❌ 加载客户端列表失败: ' + (err.response?.data?.detail || err.message))
@@ -138,6 +184,14 @@ export default function TestOAuth() {
     localStorage.setItem(STORAGE_KEYS.LOG, JSON.stringify(log))
   }, [log])
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.PKCE_ENABLED, pkceEnabled.toString())
+  }, [pkceEnabled])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.REPLAY_DETECTED, replayDetected.toString())
+  }, [replayDetected])
+
   const getSelectedClientWithSecret = useCallback((): Client | null => {
     if (!selectedClient) return null
     return enrichClientWithSecret(selectedClient)
@@ -165,10 +219,20 @@ export default function TestOAuth() {
 
       addLog(`✅ OAuth state 校验通过`)
 
+      const codeVerifier = sessionStorage.getItem(STORAGE_KEYS.CODE_VERIFIER)
+      sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER)
+
+      if (pkceEnabled && !codeVerifier) {
+        addLog('⚠️  PKCE 已启用但未找到 code_verifier，尝试不使用 PKCE 继续')
+      }
+
       const clientWithSecret = getSelectedClientWithSecret()
       if (clientWithSecret && clientWithSecret.client_secret) {
         addLog(`📥 收到授权码: ${code.substring(0, 20)}...`)
-        exchangeCodeForToken(code)
+        if (pkceEnabled && codeVerifier) {
+          addLog(`🔐 使用 code_verifier (PKCE): ${codeVerifier.substring(0, 20)}...`)
+        }
+        exchangeCodeForToken(code, codeVerifier || undefined)
         window.history.replaceState({}, document.title, '/test')
       } else {
         const savedClientId = localStorage.getItem(STORAGE_KEYS.SELECTED_CLIENT_ID)
@@ -176,6 +240,9 @@ export default function TestOAuth() {
         if (savedClientId && savedSecret) {
           addLog(`📥 收到授权码，从 localStorage 恢复客户端凭证`)
           addLog(`📥 授权码: ${code.substring(0, 20)}...`)
+          if (pkceEnabled && codeVerifier) {
+            addLog(`🔐 使用 code_verifier (PKCE): ${codeVerifier.substring(0, 20)}...`)
+          }
           const tempClient: Client = {
             client_id: savedClientId,
             client_secret: savedSecret,
@@ -184,7 +251,7 @@ export default function TestOAuth() {
             scope: '',
             is_active: true,
           }
-          exchangeCodeForToken(code, tempClient)
+          exchangeCodeForToken(code, codeVerifier || undefined, tempClient)
           window.history.replaceState({}, document.title, '/test')
         } else {
           setError('无法获取客户端凭证，请重新开始 OAuth2.0 流程')
@@ -192,14 +259,14 @@ export default function TestOAuth() {
         }
       }
     }
-  }, [isInitialized, getSelectedClientWithSecret])
+  }, [isInitialized, getSelectedClientWithSecret, pkceEnabled])
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString('zh-CN')
     setLog(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 49)])
   }
 
-  const startOAuth = () => {
+  const startOAuth = async () => {
     const client = getSelectedClientWithSecret()
     if (!client) {
       setError('请先选择一个客户端')
@@ -217,6 +284,7 @@ export default function TestOAuth() {
     }
 
     setError('')
+    setReplayDetected(false)
     setStep(1)
     setTokenResponse(null)
     setUserInfo(null)
@@ -226,14 +294,27 @@ export default function TestOAuth() {
 
     const state = crypto.getRandomValues(new Uint8Array(32)).reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '')
     sessionStorage.setItem(STORAGE_KEYS.OAUTH_STATE, state)
-    const authUrl = `/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read write&state=${state}`
 
-    addLog(`🔗 重定向到授权服务器: ${authUrl}`)
+    let authUrl = `/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read write&state=${state}`
+
+    if (pkceEnabled) {
+      const codeVerifier = generateCodeVerifier(64)
+      sessionStorage.setItem(STORAGE_KEYS.CODE_VERIFIER, codeVerifier)
+      const codeChallenge = await computeCodeChallengeS256(codeVerifier)
+      authUrl += `&code_challenge=${codeChallenge}&code_challenge_method=S256`
+      addLog(`🔐 PKCE (S256) 已启用`)
+      addLog(`   code_verifier: ${codeVerifier.substring(0, 20)}...`)
+      addLog(`   code_challenge: ${codeChallenge.substring(0, 20)}...`)
+    } else {
+      addLog(`🔐 PKCE 已禁用`)
+    }
+
     addLog(`🔐 生成并存储 state 参数 (CSRF 防护)`)
+    addLog(`🔗 重定向到授权服务器: ${authUrl.substring(0, 100)}...`)
     window.location.href = authUrl
   }
 
-  const exchangeCodeForToken = async (code: string, clientOverride?: Client) => {
+  const exchangeCodeForToken = async (code: string, codeVerifier?: string, clientOverride?: Client) => {
     const client = clientOverride || getSelectedClientWithSecret()
     if (!client || !client.client_secret) {
       setError('请先创建一个客户端并获取 client_secret')
@@ -243,19 +324,28 @@ export default function TestOAuth() {
     setLoading(true)
     setStep(2)
     addLog('🔄 使用授权码交换 Token...')
+    if (codeVerifier) {
+      addLog(`   携带 code_verifier 进行 PKCE 验证`)
+    }
 
     try {
       const response = await oauthAPI.exchangeCode(
         code,
         client.client_id,
         client.client_secret,
-        redirectUri
+        redirectUri,
+        codeVerifier
       )
       setTokenResponse(response.data)
       setStep(3)
       addLog('✅ Token 交换成功!')
       addLog(`   Access Token: ${response.data.access_token.substring(0, 30)}...`)
-      addLog(`   Refresh Token: ${response.data.refresh_token?.substring(0, 30)}...`)
+      if (response.data.refresh_token) {
+        addLog(`   Refresh Token: ${response.data.refresh_token.substring(0, 30)}...`)
+      }
+      if (response.data.token_family_id) {
+        addLog(`   Token Family ID: ${response.data.token_family_id.substring(0, 20)}...`)
+      }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
       addLog(`❌ Token 交换失败: ${errorMsg}`)
@@ -271,8 +361,10 @@ export default function TestOAuth() {
       return
     }
 
+    const oldRefreshToken = tokenResponse.refresh_token
     setLoading(true)
     addLog('🔄 刷新 Access Token...')
+    addLog(`   旧 Refresh Token: ${oldRefreshToken.substring(0, 20)}...`)
 
     try {
       const response = await oauthAPI.refreshToken(
@@ -281,12 +373,72 @@ export default function TestOAuth() {
         client.client_secret
       )
       setTokenResponse(response.data)
+      setReplayDetected(false)
       addLog('✅ Token 刷新成功!')
       addLog(`   新 Access Token: ${response.data.access_token.substring(0, 30)}...`)
+      if (response.data.refresh_token) {
+        addLog(`   新 Refresh Token: ${response.data.refresh_token.substring(0, 30)}...`)
+      }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
       addLog(`❌ Token 刷新失败: ${errorMsg}`)
+
+      if (errorMsg.includes('Replay') || errorMsg.includes('replay') || errorMsg.includes('invalidated')) {
+        setReplayDetected(true)
+        addLog('⚠️  检测到重放攻击！该 token 族已全部撤销')
+      }
+
       setError('Token 刷新失败: ' + errorMsg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const testReplayAttack = async () => {
+    const client = getSelectedClientWithSecret()
+    if (!client || !client.client_secret || !tokenResponse?.refresh_token) {
+      setError('请先完成授权码流程以获取 refresh token')
+      return
+    }
+
+    const savedRefreshToken = tokenResponse.refresh_token
+
+    setLoading(true)
+    addLog('🎯 开始重放攻击测试...')
+    addLog(`   目标 Refresh Token: ${savedRefreshToken.substring(0, 20)}...`)
+
+    try {
+      addLog('1️⃣ 第一次刷新 token (正常操作，旧 token 被撤销)')
+      const resp1 = await oauthAPI.refreshToken(
+        savedRefreshToken,
+        client.client_id,
+        client.client_secret
+      )
+      setTokenResponse(resp1.data)
+      addLog('   ✅ 第一次刷新成功，旧 token 已被撤销')
+
+      addLog('2️⃣ 第二次使用同一个旧 token (模拟重放攻击)')
+      try {
+        await oauthAPI.refreshToken(
+          savedRefreshToken,
+          client.client_id,
+          client.client_secret
+        )
+        addLog('   ❌ 错误：第二次刷新居然成功了！重放检测失败')
+      } catch (innerErr: any) {
+        const innerMsg = innerErr.response?.data?.detail || innerErr.message
+        if (innerMsg.includes('Replay') || innerMsg.includes('invalidated')) {
+          setReplayDetected(true)
+          addLog('   ✅ 重放检测成功！已撤销整个 token 族')
+          addLog(`   错误信息: ${innerMsg.substring(0, 80)}...`)
+        } else {
+          addLog(`   ⚠️  返回其他错误: ${innerMsg.substring(0, 80)}...`)
+        }
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message
+      addLog(`❌ 测试过程出错: ${errorMsg}`)
+      setError('测试失败: ' + errorMsg)
     } finally {
       setLoading(false)
     }
@@ -322,6 +474,9 @@ export default function TestOAuth() {
       addLog(`✅ Token 内省结果: ${response.data.active ? '有效' : '无效'}`)
       if (response.data.active) {
         addLog(`   用户: ${response.data.username}, Scope: ${response.data.scope}`)
+        if (response.data.token_family_id) {
+          addLog(`   Token Family ID: ${response.data.token_family_id.substring(0, 20)}...`)
+        }
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
@@ -337,12 +492,16 @@ export default function TestOAuth() {
     setUserInfo(null)
     setIntrospectResult(null)
     setError('')
+    setReplayDetected(false)
     setLog([])
+    sessionStorage.removeItem(STORAGE_KEYS.OAUTH_STATE)
+    sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER)
     localStorage.removeItem(STORAGE_KEYS.TOKEN_RESPONSE)
     localStorage.removeItem(STORAGE_KEYS.USER_INFO)
     localStorage.removeItem(STORAGE_KEYS.INTROSPECT_RESULT)
     localStorage.removeItem(STORAGE_KEYS.STEP)
     localStorage.removeItem(STORAGE_KEYS.LOG)
+    localStorage.removeItem(STORAGE_KEYS.REPLAY_DETECTED)
     addLog('🔄 测试已重置')
   }
 
@@ -391,6 +550,18 @@ export default function TestOAuth() {
               </select>
             </div>
 
+            <div style={styles.formGroup}>
+              <label style={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={pkceEnabled}
+                  onChange={(e) => setPkceEnabled(e.target.checked)}
+                  style={{ marginRight: '8px' }}
+                />
+                🔐 启用 PKCE (Proof Key for Code Exchange, RFC 7636) - S256 方式
+              </label>
+            </div>
+
             {(() => {
               const client = getSelectedClientWithSecret()
               if (!client) return null
@@ -423,6 +594,14 @@ export default function TestOAuth() {
               )
             })()}
 
+            {replayDetected && (
+              <div style={styles.replayAlert}>
+                🚨 <strong>重放攻击检测！</strong>检测到已撤销的 refresh token 被再次使用。
+                该 client 下该用户的 <strong>所有 token 族已被立即撤销</strong>，
+                请重新开始 OAuth2.0 授权流程。
+              </div>
+            )}
+
             {error && <div style={styles.error}>{error}</div>}
 
             <div style={styles.buttonGroup}>
@@ -434,7 +613,7 @@ export default function TestOAuth() {
                   ...((loading || !getSelectedClientWithSecret()?.client_secret) ? styles.disabledBtn : {}),
                 }}
               >
-                🚀 开始 OAuth2.0 流程
+                🚀 开始 OAuth2.0 流程{pkceEnabled ? ' (PKCE)' : ''}
               </button>
               <button onClick={resetTest} style={styles.secondaryBtn}>
                 🔄 重置
@@ -471,6 +650,11 @@ export default function TestOAuth() {
           {tokenResponse && (
             <div style={styles.section}>
               <h2 style={styles.sectionTitle}>🔑 Token 信息</h2>
+              {tokenResponse.token_family_id && (
+                <div style={styles.familyBadge}>
+                  👨‍👩‍👧‍👦 Token Family ID: <code>{tokenResponse.token_family_id}</code>
+                </div>
+              )}
               <div style={styles.tokenGrid}>
                 <div style={styles.tokenItem}>
                   <div style={styles.tokenLabel}>Access Token</div>
@@ -506,6 +690,16 @@ export default function TestOAuth() {
                   }}
                 >
                   🔄 刷新 Token
+                </button>
+                <button
+                  onClick={testReplayAttack}
+                  disabled={loading || replayDetected}
+                  style={{
+                    ...styles.dangerBtn,
+                    ...((loading || replayDetected) ? styles.disabledBtn : {}),
+                  }}
+                >
+                  🎯 测试重放攻击
                 </button>
                 <button
                   onClick={getUserInfo}
@@ -583,6 +777,12 @@ export default function TestOAuth() {
                       <span>用户名:</span>
                       <span>{introspectResult.username}</span>
                     </div>
+                    {introspectResult.token_family_id && (
+                      <div style={styles.detailRow}>
+                        <span>Token Family ID:</span>
+                        <code>{introspectResult.token_family_id.substring(0, 20)}...</code>
+                      </div>
+                    )}
                     {introspectResult.exp && (
                       <div style={styles.detailRow}>
                         <span>过期时间:</span>
@@ -665,6 +865,14 @@ const styles = {
     color: '#2d3748',
     marginBottom: '6px',
   } as React.CSSProperties,
+  checkboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#2d3748',
+    cursor: 'pointer',
+  } as React.CSSProperties,
   select: {
     width: '100%',
     padding: '12px 16px',
@@ -712,6 +920,25 @@ const styles = {
     fontSize: '13px',
     marginTop: '12px',
   } as React.CSSProperties,
+  replayAlert: {
+    background: '#fef2f2',
+    color: '#991b1b',
+    border: '2px solid #fecaca',
+    padding: '16px',
+    borderRadius: '8px',
+    fontSize: '14px',
+    marginBottom: '16px',
+    lineHeight: '1.6',
+  } as React.CSSProperties,
+  familyBadge: {
+    background: '#eef2ff',
+    color: '#3730a3',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    fontSize: '13px',
+    marginBottom: '16px',
+    fontWeight: '500',
+  } as React.CSSProperties,
   error: {
     background: '#fed7d7',
     color: '#c53030',
@@ -730,6 +957,17 @@ const styles = {
   primaryBtn: {
     padding: '12px 24px',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  dangerBtn: {
+    padding: '12px 24px',
+    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
     color: 'white',
     border: 'none',
     borderRadius: '8px',

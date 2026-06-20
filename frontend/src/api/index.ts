@@ -47,7 +47,7 @@ export const clientsAPI = {
 }
 
 export const oauthAPI = {
-  exchangeCode: (code: string, clientId: string, clientSecret: string, redirectUri: string) =>
+  exchangeCode: (code: string, clientId: string, clientSecret: string, redirectUri: string, codeVerifier?: string) =>
     api.post<TokenResponse>(
       '/token',
       new URLSearchParams({
@@ -56,6 +56,7 @@ export const oauthAPI = {
         redirect_uri: redirectUri,
         client_id: clientId,
         client_secret: clientSecret,
+        ...(codeVerifier && { code_verifier: codeVerifier }),
       }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     ),

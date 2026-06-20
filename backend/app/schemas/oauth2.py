@@ -26,6 +26,7 @@ class TokenResponse(BaseModel):
     expires_in: int
     refresh_token: str | None = None
     scope: str
+    token_family_id: str | None = None
 
 
 class IntrospectResponse(BaseModel):
@@ -34,3 +35,4 @@ class IntrospectResponse(BaseModel):
     client_id: str | None = None
     username: str | None = None
     exp: int | None = None
+    token_family_id: str | None = None

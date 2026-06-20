@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -7,6 +10,48 @@ import bcrypt
 from jose import JWTError, jwt
 
 from .settings import settings
+
+
+PKCE_CODE_VERIFIER_PATTERN = re.compile(r"^[A-Za-z0-9\-._~]{43,128}$")
+
+
+def generate_code_verifier(length: int = 64) -> str:
+    if length < 43 or length > 128:
+        raise ValueError("code_verifier length must be between 43 and 128 characters")
+    alphabet = string.ascii_letters + string.digits + "-._~"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def validate_code_verifier(code_verifier: str) -> bool:
+    return bool(PKCE_CODE_VERIFIER_PATTERN.match(code_verifier))
+
+
+def compute_code_challenge_s256(code_verifier: str) -> str:
+    hashed = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(hashed).rstrip(b"=").decode("ascii")
+
+
+def compute_code_challenge(code_verifier: str, method: str = "S256") -> str:
+    if method == "S256":
+        return compute_code_challenge_s256(code_verifier)
+    elif method == "plain":
+        return code_verifier
+    else:
+        raise ValueError(f"Unsupported code_challenge_method: {method}")
+
+
+def verify_pkce(
+    code_verifier: str,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> bool:
+    if not validate_code_verifier(code_verifier):
+        return False
+    try:
+        expected = compute_code_challenge(code_verifier, code_challenge_method)
+        return secrets.compare_digest(expected, code_challenge)
+    except ValueError:
+        return False
 
 
 def generate_client_id(length: int = 32) -> str:

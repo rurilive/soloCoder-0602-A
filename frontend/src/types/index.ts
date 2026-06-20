@@ -25,6 +25,7 @@ export interface TokenResponse {
   expires_in: number
   refresh_token?: string
   scope: string
+  token_family_id?: string
 }
 
 export interface IntrospectResponse {
@@ -33,6 +34,7 @@ export interface IntrospectResponse {
   client_id?: string
   username?: string
   exp?: number
+  token_family_id?: string
 }
 
 export interface CreateClientRequest {

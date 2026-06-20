@@ -9,6 +9,11 @@ from .security import (
     get_password_hash,
     generate_client_id,
     generate_client_secret,
+    generate_code_verifier,
+    validate_code_verifier,
+    compute_code_challenge,
+    compute_code_challenge_s256,
+    verify_pkce,
 )
 
 __all__ = [
@@ -26,4 +31,9 @@ __all__ = [
     "get_password_hash",
     "generate_client_id",
     "generate_client_secret",
+    "generate_code_verifier",
+    "validate_code_verifier",
+    "compute_code_challenge",
+    "compute_code_challenge_s256",
+    "verify_pkce",
 ]

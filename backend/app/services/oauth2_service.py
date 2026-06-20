@@ -9,6 +9,7 @@ from ..core import (
     create_refresh_token,
     create_authorization_code,
     verify_token,
+    verify_pkce,
     settings,
 )
 from .client_service import validate_client_credentials, validate_redirect_uri
@@ -30,6 +31,8 @@ async def create_authorization_code_record(
     user_id: int,
     redirect_uri: str,
     scope: str | None = None,
+    code_challenge: str | None = None,
+    code_challenge_method: str | None = None,
 ) -> AuthorizationCode:
     code, expires_at = create_authorization_code(client_id, user_id, redirect_uri, scope)
     db_code = AuthorizationCode(
@@ -39,6 +42,8 @@ async def create_authorization_code_record(
         redirect_uri=redirect_uri,
         scope=scope or "read write",
         expires_at=expires_at.replace(tzinfo=None),
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
     )
     db.add(db_code)
     await db.commit()
@@ -76,11 +81,19 @@ async def create_token_record(
     user_id: int,
     client_id: str,
     scope: str,
-) -> tuple[str, str, int]:
+    token_family_id: str | None = None,
+) -> tuple[str, str, int, str]:
+    if token_family_id is None:
+        token_family_id = str(uuid.uuid4())
+
     expires_in = settings.access_token_expire_minutes * 60
     access_token = create_access_token(
         subject=user_id,
-        additional_claims={"client_id": client_id, "scope": scope},
+        additional_claims={
+            "client_id": client_id,
+            "scope": scope,
+            "token_family_id": token_family_id,
+        },
     )
     refresh_token = create_refresh_token(
         subject=user_id,
@@ -88,6 +101,7 @@ async def create_token_record(
             "client_id": client_id,
             "scope": scope,
             "jti": str(uuid.uuid4()),
+            "token_family_id": token_family_id,
         },
     )
 
@@ -99,21 +113,45 @@ async def create_token_record(
         client_id=client_id,
         scope=scope,
         expires_at=refresh_expires_at.replace(tzinfo=None),
+        token_family_id=token_family_id,
     )
     db.add(db_token)
     await db.commit()
 
-    return access_token, refresh_token, expires_in
+    return access_token, refresh_token, expires_in, token_family_id
+
+
+async def revoke_all_tokens_in_family(
+    db: AsyncSession,
+    user_id: int,
+    client_id: str,
+    token_family_id: str,
+) -> int:
+    result = await db.execute(
+        select(Token).where(
+            Token.user_id == user_id,
+            Token.client_id == client_id,
+            Token.token_family_id == token_family_id,
+        )
+    )
+    tokens = result.scalars().all()
+    count = 0
+    for t in tokens:
+        if not t.is_revoked:
+            t.is_revoked = True
+            count += 1
+    await db.commit()
+    return count
 
 
 async def validate_refresh_token(
     db: AsyncSession, refresh_token: str, client_id: str
-) -> Token | None:
+) -> tuple[Token | None, bool]:
     payload = verify_token(refresh_token, expected_type="refresh")
     if payload is None:
-        return None
+        return None, False
     if payload.get("client_id") != client_id:
-        return None
+        return None, False
 
     result = await db.execute(
         select(Token).where(Token.refresh_token == refresh_token)
@@ -121,15 +159,17 @@ async def validate_refresh_token(
     db_token = result.scalar_one_or_none()
 
     if db_token is None:
-        return None
-    if db_token.is_revoked:
-        return None
-    if db_token.client_id != client_id:
-        return None
-    if _to_aware(db_token.expires_at) < _utcnow():
-        return None
+        return None, False
 
-    return db_token
+    if db_token.is_revoked:
+        return db_token, True
+
+    if db_token.client_id != client_id:
+        return None, False
+    if _to_aware(db_token.expires_at) < _utcnow():
+        return None, False
+
+    return db_token, False
 
 
 async def revoke_refresh_token(db: AsyncSession, refresh_token: str) -> bool:
@@ -150,7 +190,8 @@ async def exchange_authorization_code(
     client_secret: str,
     code: str,
     redirect_uri: str,
-) -> tuple[str, str, int, str] | None:
+    code_verifier: str | None = None,
+) -> tuple[str, str, int, str, str] | None:
     client = await validate_client_credentials(db, client_id, client_secret)
     if client is None:
         return None
@@ -159,14 +200,24 @@ async def exchange_authorization_code(
     if auth_code is None:
         return None
 
+    if auth_code.code_challenge:
+        if not code_verifier:
+            return None
+        if not verify_pkce(
+            code_verifier,
+            auth_code.code_challenge,
+            auth_code.code_challenge_method or "S256",
+        ):
+            return None
+
     await mark_authorization_code_used(db, auth_code)
 
     scope = auth_code.scope or "read write"
-    access_token, refresh_token, expires_in = await create_token_record(
+    access_token, refresh_token, expires_in, token_family_id = await create_token_record(
         db, auth_code.user_id, client_id, scope
     )
 
-    return access_token, refresh_token, expires_in, scope
+    return access_token, refresh_token, expires_in, scope, token_family_id
 
 
 async def refresh_access_token(
@@ -174,23 +225,38 @@ async def refresh_access_token(
     client_id: str,
     client_secret: str,
     refresh_token: str,
-) -> tuple[str, str, int, str] | None:
+) -> tuple[str, str, int, str, str, bool] | None:
     client = await validate_client_credentials(db, client_id, client_secret)
     if client is None:
         return None
 
-    db_token = await validate_refresh_token(db, refresh_token, client_id)
+    db_token, was_revoked = await validate_refresh_token(db, refresh_token, client_id)
     if db_token is None:
         return None
+
+    replay_detected = False
+
+    if was_revoked:
+        replay_detected = True
+        if db_token.token_family_id:
+            await revoke_all_tokens_in_family(
+                db,
+                db_token.user_id,
+                db_token.client_id,
+                db_token.token_family_id,
+            )
+        return None, None, None, None, None, replay_detected
+
+    current_family_id = db_token.token_family_id or str(uuid.uuid4())
 
     await revoke_refresh_token(db, refresh_token)
 
     scope = db_token.scope or "read write"
-    new_access_token, new_refresh_token, expires_in = await create_token_record(
-        db, db_token.user_id, client_id, scope
+    new_access_token, new_refresh_token, expires_in, _ = await create_token_record(
+        db, db_token.user_id, client_id, scope, token_family_id=current_family_id
     )
 
-    return new_access_token, new_refresh_token, expires_in, scope
+    return new_access_token, new_refresh_token, expires_in, scope, current_family_id, replay_detected
 
 
 async def introspect_token(
@@ -223,4 +289,5 @@ async def introspect_token(
         "client_id": payload.get("client_id"),
         "username": user.username if user else None,
         "exp": payload.get("exp"),
+        "token_family_id": payload.get("token_family_id"),
     }

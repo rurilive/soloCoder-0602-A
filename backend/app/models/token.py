@@ -15,6 +15,7 @@ class Token(Base):
     scope = Column(String(255), default="read write")
     expires_at = Column(DateTime, nullable=False)
     is_revoked = Column(Boolean, default=False)
+    token_family_id = Column(String(64), index=True, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")

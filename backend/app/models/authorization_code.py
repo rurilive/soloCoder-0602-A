@@ -16,6 +16,8 @@ class AuthorizationCode(Base):
     scope = Column(String(255), default="read write")
     expires_at = Column(DateTime, nullable=False)
     is_used = Column(Boolean, default=False)
+    code_challenge = Column(String(255), nullable=True)
+    code_challenge_method = Column(String(16), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     client = relationship("Client")
