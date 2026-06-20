@@ -63,7 +63,6 @@ export interface AuthContextType {
 
 export interface DeviceAuthorization {
   id: number
-  device_code: string
   user_code: string
   client_id: string
   client_name: string | null
