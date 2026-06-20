@@ -72,10 +72,15 @@ def generate_device_code() -> str:
     return secrets.token_urlsafe(48)
 
 
+_USER_CODE_CONFUSING_CHARS = set("0O1IL")
+
+
 def generate_user_code() -> str:
     alphabet = string.ascii_uppercase + string.digits
     while True:
         code = "".join(secrets.choice(alphabet) for _ in range(8))
+        if _USER_CODE_CONFUSING_CHARS.intersection(code):
+            continue
         formatted = code[:4] + "-" + code[4:]
         return formatted
 

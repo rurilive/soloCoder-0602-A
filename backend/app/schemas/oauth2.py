@@ -61,7 +61,6 @@ class DeviceCodeTokenRequest(BaseModel):
 
 class DeviceAuthorizationResponseSchema(BaseModel):
     id: int
-    device_code: str
     user_code: str
     client_id: str
     client_name: str | None = None

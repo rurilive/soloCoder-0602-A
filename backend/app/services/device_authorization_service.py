@@ -163,7 +163,6 @@ async def get_device_authorization_with_details(
 
     return {
         "id": auth.id,
-        "device_code": auth.device_code,
         "user_code": auth.user_code,
         "client_id": auth.client_id,
         "client_name": client_name,
