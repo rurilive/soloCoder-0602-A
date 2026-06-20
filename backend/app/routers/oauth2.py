@@ -186,8 +186,7 @@ async def token_endpoint(
 
         if not result.success:
             error_map = {
-                "invalid_client": "Invalid client credentials",
-                "invalid_code": "Invalid or expired authorization code",
+                "invalid_grant": "Invalid authorization code or client credentials",
                 "pkce_verifier_missing": "PKCE verification failed: code_verifier is required but was not provided",
                 "pkce_verification_failed": "PKCE verification failed: code_verifier does not match code_challenge",
             }
@@ -215,16 +214,11 @@ async def token_endpoint(
             db, client_id, client_secret, refresh_token
         )
 
-        if result.replay_detected:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Replay attack detected: refresh token has been revoked. All tokens in this family have been invalidated.",
-            )
-
         if not result.success:
             error_map = {
                 "invalid_client": "Invalid client credentials",
                 "invalid_token": "Invalid or expired refresh token",
+                "replay_detected": "Replay attack detected: refresh token has been revoked. All tokens in this family have been invalidated.",
             }
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

@@ -266,6 +266,38 @@ export default function TestOAuth() {
     setLog(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 49)])
   }
 
+  const getErrorChineseTip = (errorMsg: string): string | null => {
+    const msg = errorMsg.toLowerCase()
+    if (msg.includes('pkce verification failed') && msg.includes('does not match')) {
+      return 'PKCE 验证失败：code_verifier 与 code_challenge 不匹配，请检查客户端是否正确生成和传递 code_verifier'
+    }
+    if (msg.includes('pkce verification failed') && msg.includes('code_verifier is required')) {
+      return 'PKCE 验证失败：授权请求使用了 PKCE 但 Token 交换时未提供 code_verifier'
+    }
+    if (msg.includes('replay attack detected')) {
+      return '重放攻击检测：该 refresh_token 已被撤销过，检测到重放攻击，整个 Token 族已全部失效'
+    }
+    if (msg.includes('invalid authorization code')) {
+      return '授权码无效：授权码可能已过期、已使用、不存在或与客户端不匹配'
+    }
+    if (msg.includes('invalid client credentials')) {
+      return '客户端凭证无效：client_id 或 client_secret 不正确'
+    }
+    if (msg.includes('invalid or expired refresh token')) {
+      return '刷新令牌无效：refresh_token 可能已过期、不存在或已被撤销'
+    }
+    if (msg.includes('invalid redirect_uri')) {
+      return '回调地址无效：redirect_uri 未在客户端配置的回调地址列表中'
+    }
+    if (msg.includes('unsupported response type')) {
+      return '不支持的响应类型：目前仅支持授权码模式 (response_type=code)'
+    }
+    if (msg.includes('invalid code_challenge_method')) {
+      return '无效的 code_challenge_method：仅支持 S256 和 plain 两种方式'
+    }
+    return null
+  }
+
   const startOAuth = async () => {
     const client = getSelectedClientWithSecret()
     if (!client) {
@@ -348,8 +380,12 @@ export default function TestOAuth() {
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
+      const chineseTip = getErrorChineseTip(errorMsg)
       addLog(`❌ Token 交换失败: ${errorMsg}`)
-      setError('Token 交换失败: ' + errorMsg)
+      if (chineseTip) {
+        addLog(`   💡 中文提示: ${chineseTip}`)
+      }
+      setError('Token 交换失败: ' + errorMsg + (chineseTip ? '\n\n💡 ' + chineseTip : ''))
     } finally {
       setLoading(false)
     }
@@ -381,14 +417,18 @@ export default function TestOAuth() {
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
+      const chineseTip = getErrorChineseTip(errorMsg)
       addLog(`❌ Token 刷新失败: ${errorMsg}`)
+      if (chineseTip) {
+        addLog(`   💡 中文提示: ${chineseTip}`)
+      }
 
       if (errorMsg.includes('Replay') || errorMsg.includes('replay') || errorMsg.includes('invalidated')) {
         setReplayDetected(true)
         addLog('⚠️  检测到重放攻击！该 token 族已全部撤销')
       }
 
-      setError('Token 刷新失败: ' + errorMsg)
+      setError('Token 刷新失败: ' + errorMsg + (chineseTip ? '\n\n💡 ' + chineseTip : ''))
     } finally {
       setLoading(false)
     }
@@ -427,18 +467,26 @@ export default function TestOAuth() {
         addLog('   ❌ 错误：第二次刷新居然成功了！重放检测失败')
       } catch (innerErr: any) {
         const innerMsg = innerErr.response?.data?.detail || innerErr.message
+        const innerTip = getErrorChineseTip(innerMsg)
         if (innerMsg.includes('Replay') || innerMsg.includes('invalidated')) {
           setReplayDetected(true)
           addLog('   ✅ 重放检测成功！已撤销整个 token 族')
           addLog(`   错误信息: ${innerMsg.substring(0, 80)}...`)
+          if (innerTip) {
+            addLog(`   💡 中文提示: ${innerTip}`)
+          }
         } else {
           addLog(`   ⚠️  返回其他错误: ${innerMsg.substring(0, 80)}...`)
         }
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
+      const chineseTip = getErrorChineseTip(errorMsg)
       addLog(`❌ 测试过程出错: ${errorMsg}`)
-      setError('测试失败: ' + errorMsg)
+      if (chineseTip) {
+        addLog(`   💡 中文提示: ${chineseTip}`)
+      }
+      setError('测试失败: ' + errorMsg + (chineseTip ? '\n\n💡 ' + chineseTip : ''))
     } finally {
       setLoading(false)
     }
@@ -457,8 +505,12 @@ export default function TestOAuth() {
       addLog(`   用户: ${response.data.username} (${response.data.email})`)
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
+      const chineseTip = getErrorChineseTip(errorMsg)
       addLog(`❌ 获取用户信息失败: ${errorMsg}`)
-      setError('获取用户信息失败: ' + errorMsg)
+      if (chineseTip) {
+        addLog(`   💡 中文提示: ${chineseTip}`)
+      }
+      setError('获取用户信息失败: ' + errorMsg + (chineseTip ? '\n\n💡 ' + chineseTip : ''))
     } finally {
       setLoading(false)
     }

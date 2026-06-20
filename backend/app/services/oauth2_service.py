@@ -37,12 +37,11 @@ class RefreshTokenResult:
     expires_in: int | None = None
     scope: str | None = None
     token_family_id: str | None = None
-    replay_detected: bool = False
     error: str | None = None
 
     @property
     def success(self) -> bool:
-        return self.error is None and not self.replay_detected
+        return self.error is None
 
 
 def _to_aware(dt: datetime) -> datetime:
@@ -224,11 +223,11 @@ async def exchange_authorization_code(
 ) -> ExchangeCodeResult:
     client = await validate_client_credentials(db, client_id, client_secret)
     if client is None:
-        return ExchangeCodeResult(error="invalid_client")
+        return ExchangeCodeResult(error="invalid_grant")
 
     auth_code = await validate_authorization_code(db, code, client_id, redirect_uri)
     if auth_code is None:
-        return ExchangeCodeResult(error="invalid_code")
+        return ExchangeCodeResult(error="invalid_grant")
 
     if auth_code.code_challenge:
         if not code_verifier:
@@ -280,7 +279,7 @@ async def refresh_access_token(
                 family_id,
             )
         return RefreshTokenResult(
-            replay_detected=True,
+            error="replay_detected",
             token_family_id=family_id,
         )
 

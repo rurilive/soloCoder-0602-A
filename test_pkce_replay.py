@@ -164,9 +164,9 @@ async def test_4_pkce_wrong_verifier_rejected(
     client_id: str,
     client_secret: str,
 ) -> None:
-    print_section("步骤 4: PKCE 安全性 - 错误的 code_verifier / 缺失 verifier / 无效授权码 返回不同错误")
+    print_section("步骤 4: PKCE 错误区分 + invalid_grant 统一返回")
 
-    # 4a: 错误的 code_verifier -> "PKCE verification failed: code_verifier does not match"
+    # 4a: 错误的 code_verifier -> PKCE verification failed: code_verifier does not match
     real_verifier = generate_code_verifier(64)
     wrong_verifier = generate_code_verifier(64)
     real_challenge = compute_code_challenge_s256(real_verifier)
@@ -211,7 +211,7 @@ async def test_4_pkce_wrong_verifier_rejected(
         f"错误消息应含 PKCE verification failed + does not match，实际: {detail}"
     print_pass(f"错误 code_verifier 返回 PKCE 专属错误: {detail}")
 
-    # 4b: 缺失 code_verifier (有 code_challenge 时) -> "code_verifier is required but was not provided"
+    # 4b: 缺失 code_verifier (有 code_challenge 时) -> PKCE verification failed: code_verifier is required
     code_challenge2 = compute_code_challenge_s256(generate_code_verifier(64))
     resp = await client.post(
         f"{BASE_URL}/authorize/submit",
@@ -248,9 +248,9 @@ async def test_4_pkce_wrong_verifier_rejected(
     detail2 = resp2.json()["detail"]
     assert "code_verifier is required" in detail2, \
         f"缺失 verifier 的错误消息不正确: {detail2}"
-    print_pass(f"缺失 code_verifier 返回专属错误: {detail2}")
+    print_pass(f"缺失 code_verifier 返回 PKCE 专属错误: {detail2}")
 
-    # 4c: 完全无效的授权码 -> "Invalid or expired authorization code"
+    # 4c: 完全无效的授权码 -> "Invalid authorization code or client credentials" (invalid_grant)
     resp3 = await client.post(
         f"{BASE_URL}/token",
         data={
@@ -263,11 +263,11 @@ async def test_4_pkce_wrong_verifier_rejected(
     )
     assert resp3.status_code == 400
     detail3 = resp3.json()["detail"]
-    assert "Invalid or expired authorization code" in detail3, \
-        f"无效授权码的错误消息不正确: {detail3}"
-    print_pass(f"无效授权码返回专属错误: {detail3}")
+    assert "Invalid authorization code or client credentials" in detail3, \
+        f"无效授权码错误消息不正确: {detail3}"
+    print_pass(f"无效授权码返回 invalid_grant 统一错误: {detail3}")
 
-    # 4d: 错误的 client_secret -> "Invalid client credentials"
+    # 4d: 错误的 client_secret -> "Invalid authorization code or client credentials" (invalid_grant)
     resp4 = await client.post(
         f"{BASE_URL}/token",
         data={
@@ -280,9 +280,42 @@ async def test_4_pkce_wrong_verifier_rejected(
     )
     assert resp4.status_code == 400
     detail4 = resp4.json()["detail"]
-    assert "Invalid client credentials" in detail4, \
-        f"无效客户端的错误消息不正确: {detail4}"
-    print_pass(f"无效客户端凭据返回专属错误: {detail4}")
+    assert "Invalid authorization code or client credentials" in detail4, \
+        f"无效客户端错误消息不正确: {detail4}"
+    print_pass(f"无效客户端凭据返回 invalid_grant 统一错误: {detail4}")
+
+    # 4e: 刷新 token 区分 invalid_client / invalid_token / replay_detected 三种错误
+    # 4e1: 错误的 client_secret -> "Invalid client credentials"
+    resp_rt1 = await client.post(
+        f"{BASE_URL}/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "any-token",
+            "client_id": client_id,
+            "client_secret": "wrong-secret",
+        },
+    )
+    assert resp_rt1.status_code == 400
+    detail_rt1 = resp_rt1.json()["detail"]
+    assert "Invalid client credentials" in detail_rt1, \
+        f"refresh 无效客户端错误消息不正确: {detail_rt1}"
+    print_pass(f"refresh 无效客户端: {detail_rt1}")
+
+    # 4e2: 无效的 refresh token -> "Invalid or expired refresh token"
+    resp_rt2 = await client.post(
+        f"{BASE_URL}/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "totally-invalid-token-xyz",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    assert resp_rt2.status_code == 400
+    detail_rt2 = resp_rt2.json()["detail"]
+    assert "Invalid or expired refresh token" in detail_rt2, \
+        f"refresh 无效 token 错误消息不正确: {detail_rt2}"
+    print_pass(f"refresh 无效 token: {detail_rt2}")
 
 async def test_5_traditional_flow_without_pkce(
     client: httpx.AsyncClient,
@@ -593,7 +626,7 @@ async def main():
             print("\n  测试结果总结:")
             print("  ✔️  用户注册与客户端注册")
             print("  ✔️  PKCE S256 正常授权流程")
-            print("  ✔️  PKCE 错误 verifier / 缺失 verifier / 无效授权码 / 无效客户端 - 错误区分")
+            print("  ✔️  PKCE 错误区分 + invalid_grant 统一 + refresh 三错误区分")
             print("  ✔️  传统无 PKCE 流程兼容")
             print("  ✔️  Token Family ID 多轮刷新一致性")
             print("  ✔️  Refresh Token 重放攻击检测")
