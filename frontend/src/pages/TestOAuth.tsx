@@ -563,9 +563,11 @@ export default function TestOAuth() {
       setAccessTokenRevoked(true)
       addLog(`✅ Access Token 撤销成功! 撤销记录数: ${response.data.revoked_count}`)
 
+      const revokedAccessToken = tokenResponse.access_token
+
       addLog('🧪 立即验证：调用 /userinfo 接口...')
       try {
-        await oauthAPI.userinfo(tokenResponse.access_token)
+        await oauthAPI.userinfo(revokedAccessToken)
         addLog('   ❌ 验证失败：/userinfo 居然返回成功，撤销可能未生效！')
       } catch (verifyErr: any) {
         const status = verifyErr.response?.status
@@ -580,7 +582,7 @@ export default function TestOAuth() {
 
       addLog('🧪 再次验证：内省 Access Token...')
       try {
-        const introResp = await oauthAPI.introspect(tokenResponse.access_token, 'access')
+        const introResp = await oauthAPI.introspect(revokedAccessToken, 'access')
         if (!introResp.data.active) {
           addLog(`   ✅ 内省验证通过：Token 状态已变为无效!`)
         } else {
@@ -589,6 +591,10 @@ export default function TestOAuth() {
       } catch (introErr: any) {
         addLog(`   ⚠️  内省请求出错: ${introErr.response?.data?.detail || introErr.message}`)
       }
+
+      setTokenResponse(null)
+      setUserInfo(null)
+      setIntrospectResult(null)
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
       const chineseTip = getErrorChineseTip(errorMsg)
@@ -627,9 +633,12 @@ export default function TestOAuth() {
       setAccessTokenRevoked(true)
       addLog(`✅ Refresh Token 撤销成功! 影响的 Token 数: ${response.data.revoked_count}`)
 
+      const revokedRefreshToken = tokenResponse.refresh_token
+      const revokedAccessToken = tokenResponse.access_token
+
       addLog('🧪 验证1：尝试使用已撤销的 Refresh Token 刷新...')
       try {
-        await oauthAPI.refreshToken(tokenResponse.refresh_token, client.client_id, client.client_secret)
+        await oauthAPI.refreshToken(revokedRefreshToken, client.client_id, client.client_secret)
         addLog('   ❌ 验证失败：刷新居然成功了，撤销可能未生效！')
       } catch (refreshErr: any) {
         const status = refreshErr.response?.status
@@ -644,7 +653,7 @@ export default function TestOAuth() {
 
       addLog('🧪 验证2：调用 /userinfo 检查 Access Token 是否同时失效...')
       try {
-        await oauthAPI.userinfo(tokenResponse.access_token)
+        await oauthAPI.userinfo(revokedAccessToken)
         addLog('   ❌ 验证失败：/userinfo 居然返回成功，Access Token 可能未被连带撤销！')
       } catch (verifyErr: any) {
         const status = verifyErr.response?.status
@@ -659,7 +668,7 @@ export default function TestOAuth() {
 
       addLog('🧪 验证3：内省 Refresh Token...')
       try {
-        const introResp = await oauthAPI.introspect(tokenResponse.refresh_token, 'refresh')
+        const introResp = await oauthAPI.introspect(revokedRefreshToken, 'refresh')
         if (!introResp.data.active) {
           addLog(`   ✅ 内省验证通过：Refresh Token 状态已变为无效!`)
         } else {
@@ -668,6 +677,10 @@ export default function TestOAuth() {
       } catch (introErr: any) {
         addLog(`   ⚠️  内省请求出错: ${introErr.response?.data?.detail || introErr.message}`)
       }
+
+      setTokenResponse(null)
+      setUserInfo(null)
+      setIntrospectResult(null)
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message
       const chineseTip = getErrorChineseTip(errorMsg)
@@ -796,6 +809,16 @@ export default function TestOAuth() {
                 🚨 <strong>重放攻击检测！</strong>检测到已撤销的 refresh token 被再次使用。
                 该 client 下该用户的 <strong>所有 token 族已被立即撤销</strong>，
                 请重新开始 OAuth2.0 授权流程。
+              </div>
+            )}
+
+            {(accessTokenRevoked || refreshTokenRevoked) && (
+              <div style={styles.revokeAlert}>
+                {refreshTokenRevoked ? (
+                  <>🗑️ <strong>Refresh Token 已撤销（全族失效）</strong>，所有关联的 Access Token 和 Refresh Token 已全部失效，请重新开始 OAuth2.0 授权流程。</>
+                ) : (
+                  <>🗑️ <strong>Access Token 已撤销</strong>，可使用 Refresh Token 刷新获取新的 Access Token，或重新开始 OAuth2.0 授权流程。</>
+                )}
               </div>
             )}
 
@@ -1143,6 +1166,16 @@ const styles = {
     background: '#fef2f2',
     color: '#991b1b',
     border: '2px solid #fecaca',
+    padding: '16px',
+    borderRadius: '8px',
+    fontSize: '14px',
+    marginBottom: '16px',
+    lineHeight: '1.6',
+  } as React.CSSProperties,
+  revokeAlert: {
+    background: '#fffbeb',
+    color: '#92400e',
+    border: '2px solid #fde68a',
     padding: '16px',
     borderRadius: '8px',
     fontSize: '14px',

@@ -152,6 +152,32 @@ async def main():
         assert r.status_code == 401, f"错误客户端凭证应该 401: {r.text}"
 
         r = await client.post(
+            f"{BACKEND}/api/clients",
+            json={
+                "name": "Other Client",
+                "redirect_uris": "http://localhost:1112/test",
+                "scope": "read write",
+            },
+            headers={"Authorization": f"Bearer {login_token}"},
+        )
+        other_client_data = r.json()
+        other_client_id = other_client_data["client_id"]
+        other_client_secret = other_client_data["client_secret"]
+        await log(f"创建另一个客户端用于归属测试: {other_client_id[:20]}...")
+
+        r = await client.post(
+            f"{BACKEND}/revoke",
+            data={
+                "token": access_token,
+                "token_type_hint": "access_token",
+                "client_id": other_client_id,
+                "client_secret": other_client_secret,
+            },
+        )
+        await log(f"其他客户端撤销 (应403): {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 403, f"其他客户端撤销应返回 403: {r.text}"
+
+        r = await client.post(
             f"{BACKEND}/revoke",
             data={
                 "token": "invalid.token.here",

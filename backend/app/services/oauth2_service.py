@@ -367,7 +367,7 @@ async def revoke_token(
 
     token_client_id = payload.get("client_id")
     if token_client_id and token_client_id != client_id:
-        return RevokeTokenResult(success=True, revoked_count=0)
+        return RevokeTokenResult(success=False, error="token_client_mismatch")
 
     token_type = payload.get("type")
     normalized_hint = _normalize_token_type_hint(token_type_hint)
