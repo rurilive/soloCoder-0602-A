@@ -1247,22 +1247,8 @@ async def search_posts(
     count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
 
-    reply_count_subq = (
-        select(
-            Reply.post_id.label("rc_post_id"),
-            func.count(Reply.id).label("rc_count"),
-        )
-        .where(Reply.is_deleted == False, Reply.is_private == False)
-        .group_by(Reply.post_id)
-        .subquery()
-    )
-
     filtered_posts = (
-        select(
-            Post.id.label("fp_id"),
-            func.coalesce(reply_count_subq.c.rc_count, 0).label("reply_count"),
-        )
-        .join(reply_count_subq, Post.id == reply_count_subq.c.rc_post_id, isouter=True)
+        select(Post.id.label("fp_id"))
         .where(*base_where)
         .order_by(Post.created_at.desc())
         .offset(skip)
@@ -1271,7 +1257,7 @@ async def search_posts(
     )
 
     stmt = (
-        select(Post, filtered_posts.c.reply_count)
+        select(Post)
         .join(filtered_posts, Post.id == filtered_posts.c.fp_id)
         .join(Post.author, isouter=True)
         .join(Post.section, isouter=True)
@@ -1280,10 +1266,26 @@ async def search_posts(
     )
 
     result = await db.execute(stmt)
-    rows = result.unique().all()
+    posts = result.unique().scalars().all()
 
     items = []
-    for post, reply_count in rows:
+    for post in posts:
+        reply_count_where = [
+            Reply.post_id == post.id,
+            Reply.is_deleted == False,
+        ]
+        if current_user is None or post.author_id != current_user.id:
+            if current_user is not None:
+                reply_count_where.append(
+                    or_(Reply.is_private == False, Reply.author_id == current_user.id)
+                )
+            else:
+                reply_count_where.append(Reply.is_private == False)
+        reply_count_result = await db.execute(
+            select(func.count(Reply.id)).where(*reply_count_where)
+        )
+        reply_count = reply_count_result.scalar() or 0
+
         items.append(
             PostSearchItem(
                 id=post.id,
@@ -1304,6 +1306,7 @@ async def search_posts(
                 is_pinned=post.is_pinned,
                 is_scheduled=_is_scheduled(post),
                 scheduled_at=post.scheduled_at,
+                allow_private_replies=post.allow_private_replies,
                 view_count=post.view_count,
                 reply_count=reply_count,
                 created_at=post.created_at,

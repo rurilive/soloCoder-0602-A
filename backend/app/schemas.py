@@ -209,6 +209,7 @@ class PostSearchItem(BaseModel):
     is_pinned: bool
     is_scheduled: bool = False
     scheduled_at: datetime | None = None
+    allow_private_replies: bool = False
     view_count: int
     reply_count: int = 0
     created_at: datetime
