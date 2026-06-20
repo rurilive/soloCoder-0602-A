@@ -90,11 +90,18 @@ def create_authorization_code(
     return code, expire
 
 
-def verify_token(token: str) -> dict[str, Any] | None:
+def verify_token(
+    token: str,
+    expected_type: str | None = "access",
+) -> dict[str, Any] | None:
     try:
         payload = jwt.decode(
             token, settings.secret_key, algorithms=[settings.algorithm]
         )
+        if expected_type is not None:
+            token_type = payload.get("type")
+            if token_type != expected_type:
+                return None
         return payload
     except JWTError:
         return None

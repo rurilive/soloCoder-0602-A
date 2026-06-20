@@ -1,6 +1,32 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { clientsAPI, oauthAPI } from '../api'
 import type { Client, TokenResponse, IntrospectResponse } from '../types'
+
+const STORAGE_KEYS = {
+  SELECTED_CLIENT_ID: 'oauth_test_selected_client_id',
+  TOKEN_RESPONSE: 'oauth_test_token_response',
+  USER_INFO: 'oauth_test_user_info',
+  INTROSPECT_RESULT: 'oauth_test_introspect_result',
+  STEP: 'oauth_test_step',
+  LOG: 'oauth_test_log',
+  CLIENT_SECRET_PREFIX: 'client_secret_',
+}
+
+const getClientSecret = (clientId: string): string | null => {
+  return localStorage.getItem(STORAGE_KEYS.CLIENT_SECRET_PREFIX + clientId)
+}
+
+const setClientSecret = (clientId: string, secret: string) => {
+  localStorage.setItem(STORAGE_KEYS.CLIENT_SECRET_PREFIX + clientId, secret)
+}
+
+const enrichClientWithSecret = (client: Client): Client => {
+  const secret = getClientSecret(client.client_id)
+  if (secret && !client.client_secret) {
+    return { ...client, client_secret: secret }
+  }
+  return client
+}
 
 export default function TestOAuth() {
   const [clients, setClients] = useState<Client[]>([])
@@ -12,6 +38,7 @@ export default function TestOAuth() {
   const [step, setStep] = useState(0)
   const [error, setError] = useState('')
   const [log, setLog] = useState<string[]>([])
+  const [isInitialized, setIsInitialized] = useState(false)
 
   const redirectUri = 'http://localhost:1112/test'
 
@@ -19,29 +46,138 @@ export default function TestOAuth() {
     const fetchClients = async () => {
       try {
         const response = await clientsAPI.list()
-        const activeClients = response.data.filter(c => c.is_active)
+        const activeClients = response.data
+          .filter(c => c.is_active)
+          .map(enrichClientWithSecret)
         setClients(activeClients)
-        if (activeClients.length > 0 && !selectedClient) {
-          setSelectedClient(activeClients[0])
+
+        const savedClientId = localStorage.getItem(STORAGE_KEYS.SELECTED_CLIENT_ID)
+        let initialClient: Client | null = null
+
+        if (savedClientId) {
+          initialClient = activeClients.find(c => c.client_id === savedClientId) || null
         }
+        if (!initialClient && activeClients.length > 0) {
+          initialClient = activeClients[0]
+        }
+
+        if (initialClient) {
+          setSelectedClient(initialClient)
+        }
+
+        const savedToken = localStorage.getItem(STORAGE_KEYS.TOKEN_RESPONSE)
+        if (savedToken) {
+          setTokenResponse(JSON.parse(savedToken))
+        }
+
+        const savedUserInfo = localStorage.getItem(STORAGE_KEYS.USER_INFO)
+        if (savedUserInfo) {
+          setUserInfo(JSON.parse(savedUserInfo))
+        }
+
+        const savedIntrospect = localStorage.getItem(STORAGE_KEYS.INTROSPECT_RESULT)
+        if (savedIntrospect) {
+          setIntrospectResult(JSON.parse(savedIntrospect))
+        }
+
+        const savedStep = localStorage.getItem(STORAGE_KEYS.STEP)
+        if (savedStep) {
+          setStep(parseInt(savedStep, 10))
+        }
+
+        const savedLog = localStorage.getItem(STORAGE_KEYS.LOG)
+        if (savedLog) {
+          setLog(JSON.parse(savedLog))
+        }
+
+        setIsInitialized(true)
       } catch (err: any) {
         addLog('❌ 加载客户端列表失败: ' + (err.response?.data?.detail || err.message))
+        setIsInitialized(true)
       }
     }
     fetchClients()
   }, [])
 
   useEffect(() => {
+    if (selectedClient) {
+      localStorage.setItem(STORAGE_KEYS.SELECTED_CLIENT_ID, selectedClient.client_id)
+    }
+  }, [selectedClient])
+
+  useEffect(() => {
+    if (tokenResponse) {
+      localStorage.setItem(STORAGE_KEYS.TOKEN_RESPONSE, JSON.stringify(tokenResponse))
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.TOKEN_RESPONSE)
+    }
+  }, [tokenResponse])
+
+  useEffect(() => {
+    if (userInfo) {
+      localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo))
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.USER_INFO)
+    }
+  }, [userInfo])
+
+  useEffect(() => {
+    if (introspectResult) {
+      localStorage.setItem(STORAGE_KEYS.INTROSPECT_RESULT, JSON.stringify(introspectResult))
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.INTROSPECT_RESULT)
+    }
+  }, [introspectResult])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.STEP, step.toString())
+  }, [step])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.LOG, JSON.stringify(log))
+  }, [log])
+
+  const getSelectedClientWithSecret = useCallback((): Client | null => {
+    if (!selectedClient) return null
+    return enrichClientWithSecret(selectedClient)
+  }, [selectedClient])
+
+  useEffect(() => {
+    if (!isInitialized) return
+
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
     const state = params.get('state')
 
-    if (code && selectedClient) {
-      addLog(`📥 收到授权码: ${code.substring(0, 20)}...`)
-      exchangeCodeForToken(code)
-      window.history.replaceState({}, document.title, '/test')
+    if (code) {
+      const clientWithSecret = getSelectedClientWithSecret()
+      if (clientWithSecret && clientWithSecret.client_secret) {
+        addLog(`📥 收到授权码: ${code.substring(0, 20)}...`)
+        exchangeCodeForToken(code)
+        window.history.replaceState({}, document.title, '/test')
+      } else {
+        const savedClientId = localStorage.getItem(STORAGE_KEYS.SELECTED_CLIENT_ID)
+        const savedSecret = savedClientId ? getClientSecret(savedClientId) : null
+        if (savedClientId && savedSecret) {
+          addLog(`📥 收到授权码，从 localStorage 恢复客户端凭证`)
+          addLog(`📥 授权码: ${code.substring(0, 20)}...`)
+          const tempClient: Client = {
+            client_id: savedClientId,
+            client_secret: savedSecret,
+            name: '',
+            redirect_uris: redirectUri,
+            scope: '',
+            is_active: true,
+          }
+          exchangeCodeForToken(code, tempClient)
+          window.history.replaceState({}, document.title, '/test')
+        } else {
+          setError('无法获取客户端凭证，请重新开始 OAuth2.0 流程')
+          addLog('❌ 无法获取客户端凭证，页面刷新后丢失了客户端信息')
+        }
+      }
     }
-  }, [selectedClient])
+  }, [isInitialized, getSelectedClientWithSecret])
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString('zh-CN')
@@ -49,12 +185,18 @@ export default function TestOAuth() {
   }
 
   const startOAuth = () => {
-    if (!selectedClient) {
+    const client = getSelectedClientWithSecret()
+    if (!client) {
       setError('请先选择一个客户端')
       return
     }
 
-    if (!selectedClient.redirect_uris.includes(redirectUri)) {
+    if (!client.client_secret) {
+      setError('请先创建一个客户端并获取 client_secret，或重新创建客户端')
+      return
+    }
+
+    if (!client.redirect_uris.includes(redirectUri)) {
       setError(`该客户端没有配置回调地址: ${redirectUri}\n请在客户端管理中添加此回调地址`)
       return
     }
@@ -65,16 +207,18 @@ export default function TestOAuth() {
     setUserInfo(null)
     setIntrospectResult(null)
     addLog('🚀 开始 OAuth2.0 授权码流程')
+    addLog(`📍 使用客户端: ${client.name} (${client.client_id})`)
 
     const state = Math.random().toString(36).substring(2)
-    const authUrl = `/authorize?response_type=code&client_id=${selectedClient.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read write&state=${state}`
+    const authUrl = `/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read write&state=${state}`
 
     addLog(`🔗 重定向到授权服务器: ${authUrl}`)
     window.location.href = authUrl
   }
 
-  const exchangeCodeForToken = async (code: string) => {
-    if (!selectedClient || !selectedClient.client_secret) {
+  const exchangeCodeForToken = async (code: string, clientOverride?: Client) => {
+    const client = clientOverride || getSelectedClientWithSecret()
+    if (!client || !client.client_secret) {
       setError('请先创建一个客户端并获取 client_secret')
       return
     }
@@ -86,8 +230,8 @@ export default function TestOAuth() {
     try {
       const response = await oauthAPI.exchangeCode(
         code,
-        selectedClient.client_id,
-        selectedClient.client_secret,
+        client.client_id,
+        client.client_secret,
         redirectUri
       )
       setTokenResponse(response.data)
@@ -105,7 +249,8 @@ export default function TestOAuth() {
   }
 
   const refreshToken = async () => {
-    if (!selectedClient || !selectedClient.client_secret || !tokenResponse?.refresh_token) {
+    const client = getSelectedClientWithSecret()
+    if (!client || !client.client_secret || !tokenResponse?.refresh_token) {
       return
     }
 
@@ -115,8 +260,8 @@ export default function TestOAuth() {
     try {
       const response = await oauthAPI.refreshToken(
         tokenResponse.refresh_token,
-        selectedClient.client_id,
-        selectedClient.client_secret
+        client.client_id,
+        client.client_secret
       )
       setTokenResponse(response.data)
       addLog('✅ Token 刷新成功!')
@@ -176,6 +321,11 @@ export default function TestOAuth() {
     setIntrospectResult(null)
     setError('')
     setLog([])
+    localStorage.removeItem(STORAGE_KEYS.TOKEN_RESPONSE)
+    localStorage.removeItem(STORAGE_KEYS.USER_INFO)
+    localStorage.removeItem(STORAGE_KEYS.INTROSPECT_RESULT)
+    localStorage.removeItem(STORAGE_KEYS.STEP)
+    localStorage.removeItem(STORAGE_KEYS.LOG)
     addLog('🔄 测试已重置')
   }
 
@@ -185,6 +335,15 @@ export default function TestOAuth() {
     { num: 3, title: '获取 Token', desc: '使用授权码交换 Access Token 和 Refresh Token' },
     { num: 4, title: '访问受保护资源', desc: '使用 Access Token 调用受保护的 API' },
   ]
+
+  if (!isInitialized) {
+    return (
+      <div style={styles.loading}>
+        <div style={{ fontSize: '24px', marginBottom: '16px' }}>⏳</div>
+        <div>加载中...</div>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -215,43 +374,47 @@ export default function TestOAuth() {
               </select>
             </div>
 
-            {selectedClient && (
-              <div style={styles.clientInfo}>
-                <div style={styles.infoRow}>
-                  <span style={styles.infoLabel}>Client ID:</span>
-                  <code style={styles.infoCode}>{selectedClient.client_id}</code>
-                </div>
-                {selectedClient.client_secret ? (
+            {(() => {
+              const client = getSelectedClientWithSecret()
+              if (!client) return null
+              return (
+                <div style={styles.clientInfo}>
                   <div style={styles.infoRow}>
-                    <span style={styles.infoLabel}>Client Secret:</span>
-                    <code style={styles.infoCode}>{selectedClient.client_secret}</code>
+                    <span style={styles.infoLabel}>Client ID:</span>
+                    <code style={styles.infoCode}>{client.client_id}</code>
                   </div>
-                ) : (
-                  <div style={styles.warning}>
-                    ⚠️ 此客户端没有可用的 client_secret。请重新创建客户端以获取新的密钥。
+                  {client.client_secret ? (
+                    <div style={styles.infoRow}>
+                      <span style={styles.infoLabel}>Client Secret:</span>
+                      <code style={styles.infoCode}>{client.client_secret}</code>
+                    </div>
+                  ) : (
+                    <div style={styles.warning}>
+                      ⚠️ 此客户端没有可用的 client_secret。请重新创建客户端以获取新的密钥。
+                    </div>
+                  )}
+                  <div style={styles.infoRow}>
+                    <span style={styles.infoLabel}>Redirect URI:</span>
+                    <code style={styles.infoCode}>{redirectUri}</code>
                   </div>
-                )}
-                <div style={styles.infoRow}>
-                  <span style={styles.infoLabel}>Redirect URI:</span>
-                  <code style={styles.infoCode}>{redirectUri}</code>
+                  {!client.redirect_uris.includes(redirectUri) && (
+                    <div style={styles.warning}>
+                      ⚠️ 回调地址未在客户端中配置。请添加: {redirectUri}
+                    </div>
+                  )}
                 </div>
-                {!selectedClient.redirect_uris.includes(redirectUri) && (
-                  <div style={styles.warning}>
-                    ⚠️ 回调地址未在客户端中配置。请添加: {redirectUri}
-                  </div>
-                )}
-              </div>
-            )}
+              )
+            })()}
 
             {error && <div style={styles.error}>{error}</div>}
 
             <div style={styles.buttonGroup}>
               <button
                 onClick={startOAuth}
-                disabled={loading || !selectedClient || !selectedClient.client_secret}
+                disabled={loading || !getSelectedClientWithSecret()?.client_secret}
                 style={{
                   ...styles.primaryBtn,
-                  ...((loading || !selectedClient || !selectedClient.client_secret) ? styles.disabledBtn : {}),
+                  ...((loading || !getSelectedClientWithSecret()?.client_secret) ? styles.disabledBtn : {}),
                 }}
               >
                 🚀 开始 OAuth2.0 流程
@@ -438,6 +601,15 @@ export default function TestOAuth() {
 }
 
 const styles = {
+  loading: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '400px',
+    color: '#718096',
+    fontSize: '16px',
+  } as React.CSSProperties,
   pageTitle: {
     fontSize: '28px',
     fontWeight: 'bold',

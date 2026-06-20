@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,7 +84,11 @@ async def create_token_record(
     )
     refresh_token = create_refresh_token(
         subject=user_id,
-        additional_claims={"client_id": client_id, "scope": scope},
+        additional_claims={
+            "client_id": client_id,
+            "scope": scope,
+            "jti": str(uuid.uuid4()),
+        },
     )
 
     refresh_expires_at = _utcnow() + timedelta(days=settings.refresh_token_expire_days)
@@ -104,10 +109,8 @@ async def create_token_record(
 async def validate_refresh_token(
     db: AsyncSession, refresh_token: str, client_id: str
 ) -> Token | None:
-    payload = verify_token(refresh_token)
+    payload = verify_token(refresh_token, expected_type="refresh")
     if payload is None:
-        return None
-    if payload.get("type") != "refresh":
         return None
     if payload.get("client_id") != client_id:
         return None
@@ -193,7 +196,7 @@ async def refresh_access_token(
 async def introspect_token(
     db: AsyncSession, token: str, token_type_hint: str | None = None
 ) -> dict:
-    payload = verify_token(token)
+    payload = verify_token(token, expected_type=None)
     if payload is None:
         return {"active": False}
 

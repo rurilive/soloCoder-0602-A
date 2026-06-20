@@ -39,7 +39,13 @@ export default function Clients() {
         const updateData: UpdateClientRequest = { ...formData }
         await clientsAPI.update(editingClient.client_id, updateData)
       } else {
-        await clientsAPI.create(formData)
+        const response = await clientsAPI.create(formData)
+        if (response.data.client_secret) {
+          localStorage.setItem(
+            `client_secret_${response.data.client_id}`,
+            response.data.client_secret
+          )
+        }
       }
       setShowModal(false)
       setEditingClient(null)
