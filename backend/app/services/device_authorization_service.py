@@ -178,6 +178,30 @@ async def get_device_authorization_with_details(
     }
 
 
+async def get_device_authorization_public_details(
+    db: AsyncSession,
+    auth: DeviceAuthorization,
+) -> dict:
+    client_name = None
+    if auth.client_id:
+        client_result = await db.execute(
+            select(Client).where(Client.client_id == auth.client_id)
+        )
+        client = client_result.scalar_one_or_none()
+        if client:
+            client_name = client.name
+
+    return {
+        "id": auth.id,
+        "user_code": auth.user_code,
+        "client_id": auth.client_id,
+        "client_name": client_name,
+        "scope": auth.scope,
+        "status": auth.status,
+        "expires_at": _to_aware(auth.expires_at),
+    }
+
+
 async def approve_device_authorization(
     db: AsyncSession,
     device_auth_id: int,

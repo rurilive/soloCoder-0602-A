@@ -82,3 +82,13 @@ class UserCodeVerifyRequest(BaseModel):
 class DeviceAuthorizationActionRequest(BaseModel):
     action: str
 
+
+class PublicDeviceVerifyResponse(BaseModel):
+    id: int
+    user_code: str
+    client_id: str
+    client_name: str | None = None
+    scope: str
+    status: str
+    expires_at: datetime
+

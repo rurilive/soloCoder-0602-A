@@ -15,6 +15,7 @@ from ..schemas import (
     DeviceAuthorizationResponseSchema,
     UserCodeVerifyRequest,
     DeviceAuthorizationActionRequest,
+    PublicDeviceVerifyResponse,
 )
 from ..services import (
     get_client_by_id,
@@ -30,6 +31,7 @@ from ..services import (
     exchange_device_code,
     list_device_authorizations,
     get_device_authorization_with_details,
+    get_device_authorization_public_details,
     get_device_authorization_by_user_code,
     approve_device_authorization,
     deny_device_authorization,
@@ -400,11 +402,11 @@ async def deny_device_authorization_endpoint(
     return {"status": "denied", "id": auth_id}
 
 
-@router.post("/api/public/device_verify")
+@router.post("/api/public/device_verify", response_model=PublicDeviceVerifyResponse)
 async def public_device_verify(
     request: UserCodeVerifyRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> PublicDeviceVerifyResponse:
     auth = await get_device_authorization_by_user_code(db, request.user_code)
     if auth is None:
         raise HTTPException(
@@ -426,8 +428,8 @@ async def public_device_verify(
             detail="User code has expired",
         )
 
-    details = await get_device_authorization_with_details(db, auth)
-    return details
+    details = await get_device_authorization_public_details(db, auth)
+    return PublicDeviceVerifyResponse(**details)
 
 
 @router.post("/introspect", response_model=IntrospectResponse)
