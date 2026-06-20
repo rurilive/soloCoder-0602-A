@@ -1,0 +1,92 @@
+import axios from 'axios'
+import type { User, Client, TokenResponse, CreateClientRequest, UpdateClientRequest, IntrospectResponse } from '../types'
+
+const api = axios.create({
+  baseURL: '/',
+  timeout: 10000,
+})
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+export const authAPI = {
+  register: (username: string, email: string, password: string) =>
+    api.post<User>('/api/auth/register', { username, email, password }),
+
+  login: (username: string, password: string) =>
+    api.post<TokenResponse>(
+      '/api/auth/login',
+      new URLSearchParams({ username, password }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+
+  getMe: () =>
+    api.get<User>('/api/auth/me'),
+}
+
+export const clientsAPI = {
+  list: () =>
+    api.get<Client[]>('/api/clients'),
+
+  get: (clientId: string) =>
+    api.get<Client>(`/api/clients/${clientId}`),
+
+  create: (data: CreateClientRequest) =>
+    api.post<Client>('/api/clients', data),
+
+  update: (clientId: string, data: UpdateClientRequest) =>
+    api.put<Client>(`/api/clients/${clientId}`, data),
+
+  delete: (clientId: string) =>
+    api.delete(`/api/clients/${clientId}`),
+}
+
+export const oauthAPI = {
+  exchangeCode: (code: string, clientId: string, clientSecret: string, redirectUri: string) =>
+    api.post<TokenResponse>(
+      '/token',
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+
+  refreshToken: (refreshToken: string, clientId: string, clientSecret: string) =>
+    api.post<TokenResponse>(
+      '/token',
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+
+  introspect: (token: string, tokenTypeHint?: string) =>
+    api.post<IntrospectResponse>(
+      '/introspect',
+      new URLSearchParams({
+        token,
+        ...(tokenTypeHint && { token_type_hint: tokenTypeHint }),
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+
+  userinfo: (accessToken: string) =>
+    api.get<{ sub: string; username: string; email: string }>(
+      '/userinfo',
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    ),
+}
+
+export default api
