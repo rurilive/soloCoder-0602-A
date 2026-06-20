@@ -26,8 +26,10 @@ from .oauth2_service import (
     exchange_authorization_code,
     refresh_access_token,
     introspect_token,
+    revoke_token,
     ExchangeCodeResult,
     RefreshTokenResult,
+    RevokeTokenResult,
 )
 from .device_authorization_service import (
     create_device_authorization,
@@ -66,8 +68,10 @@ __all__ = [
     "exchange_authorization_code",
     "refresh_access_token",
     "introspect_token",
+    "revoke_token",
     "ExchangeCodeResult",
     "RefreshTokenResult",
+    "RevokeTokenResult",
     "create_device_authorization",
     "get_device_authorization_by_code",
     "get_device_authorization_by_user_code",

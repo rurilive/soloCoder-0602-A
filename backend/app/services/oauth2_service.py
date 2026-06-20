@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuthorizationCode, Token, Client, User
+from ..models import AuthorizationCode, Token, Client, User, RevokedToken
 from ..core import (
     create_access_token,
     create_refresh_token,
@@ -116,7 +116,7 @@ async def create_token_record(
         token_family_id = str(uuid.uuid4())
 
     expires_in = settings.access_token_expire_minutes * 60
-    access_token = create_access_token(
+    access_token, _access_jti = create_access_token(
         subject=user_id,
         additional_claims={
             "client_id": client_id,
@@ -124,12 +124,13 @@ async def create_token_record(
             "token_family_id": token_family_id,
         },
     )
-    refresh_token = create_refresh_token(
+    refresh_jti = str(uuid.uuid4())
+    refresh_token, _ = create_refresh_token(
         subject=user_id,
         additional_claims={
             "client_id": client_id,
             "scope": scope,
-            "jti": str(uuid.uuid4()),
+            "jti": refresh_jti,
             "token_family_id": token_family_id,
         },
     )
@@ -176,7 +177,7 @@ async def revoke_all_tokens_in_family(
 async def validate_refresh_token(
     db: AsyncSession, refresh_token: str, client_id: str
 ) -> tuple[Token | None, bool]:
-    payload = verify_token(refresh_token, expected_type="refresh")
+    payload = await verify_token(refresh_token, expected_type="refresh", db=db)
     if payload is None:
         return None, False
     if payload.get("client_id") != client_id:
@@ -304,7 +305,7 @@ async def refresh_access_token(
 async def introspect_token(
     db: AsyncSession, token: str, token_type_hint: str | None = None
 ) -> dict:
-    payload = verify_token(token, expected_type=None)
+    payload = await verify_token(token, expected_type=None, db=db)
     if payload is None:
         return {"active": False}
 
@@ -333,3 +334,143 @@ async def introspect_token(
         "exp": payload.get("exp"),
         "token_family_id": payload.get("token_family_id"),
     }
+
+
+@dataclass
+class RevokeTokenResult:
+    success: bool = False
+    revoked_count: int = 0
+    error: str | None = None
+
+
+def _normalize_token_type_hint(hint: str | None) -> str | None:
+    if hint is None:
+        return None
+    hint_lower = hint.lower()
+    if hint_lower in ("access_token", "access"):
+        return "access"
+    if hint_lower in ("refresh_token", "refresh"):
+        return "refresh"
+    return hint_lower
+
+
+async def revoke_token(
+    db: AsyncSession,
+    token: str,
+    client_id: str,
+    token_type_hint: str | None = None,
+) -> RevokeTokenResult:
+    payload = await verify_token(token, expected_type=None, db=None)
+    if payload is None:
+        return RevokeTokenResult(success=False, error="invalid_token")
+
+    token_client_id = payload.get("client_id")
+    if token_client_id and token_client_id != client_id:
+        return RevokeTokenResult(success=False, error="invalid_client")
+
+    token_type = payload.get("type")
+    normalized_hint = _normalize_token_type_hint(token_type_hint)
+    if normalized_hint and token_type != normalized_hint:
+        return RevokeTokenResult(success=False, error="unsupported_token_type")
+
+    user_id = int(payload["sub"])
+    jti = payload.get("jti")
+    token_family_id = payload.get("token_family_id")
+    exp_timestamp = payload.get("exp")
+    expires_at = (
+        datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+        if exp_timestamp
+        else _utcnow() + timedelta(days=1)
+    )
+
+    revoked_count = 0
+
+    if token_type == "access":
+        if jti:
+            existing = await db.execute(
+                select(RevokedToken).where(RevokedToken.jti == jti)
+            )
+            if existing.scalar_one_or_none() is None:
+                db_revoked = RevokedToken(
+                    jti=jti,
+                    token_type="access",
+                    user_id=user_id,
+                    client_id=token_client_id or client_id,
+                    token_family_id=token_family_id,
+                    expires_at=expires_at.replace(tzinfo=None),
+                )
+                db.add(db_revoked)
+                revoked_count = 1
+        await db.commit()
+        return RevokeTokenResult(success=True, revoked_count=revoked_count)
+
+    elif token_type == "refresh":
+        if token_family_id:
+            result = await db.execute(
+                select(Token).where(
+                    Token.user_id == user_id,
+                    Token.client_id == (token_client_id or client_id),
+                    Token.token_family_id == token_family_id,
+                )
+            )
+            tokens = result.scalars().all()
+            for t in tokens:
+                if not t.is_revoked:
+                    t.is_revoked = True
+                    revoked_count += 1
+
+            family_marker = await db.execute(
+                select(RevokedToken).where(
+                    RevokedToken.token_family_id == token_family_id,
+                    RevokedToken.jti.is_(None),
+                )
+            )
+            if family_marker.scalar_one_or_none() is None:
+                db_family_revoked = RevokedToken(
+                    jti=None,
+                    token_type="family",
+                    user_id=user_id,
+                    client_id=token_client_id or client_id,
+                    token_family_id=token_family_id,
+                    expires_at=expires_at.replace(tzinfo=None),
+                )
+                db.add(db_family_revoked)
+                revoked_count += 1
+
+            if jti:
+                existing_jti = await db.execute(
+                    select(RevokedToken).where(RevokedToken.jti == jti)
+                )
+                if existing_jti.scalar_one_or_none() is None:
+                    db_revoked = RevokedToken(
+                        jti=jti,
+                        token_type="refresh",
+                        user_id=user_id,
+                        client_id=token_client_id or client_id,
+                        token_family_id=token_family_id,
+                        expires_at=expires_at.replace(tzinfo=None),
+                    )
+                    db.add(db_revoked)
+                    revoked_count += 1
+
+        elif jti:
+            existing = await db.execute(
+                select(RevokedToken).where(RevokedToken.jti == jti)
+            )
+            if existing.scalar_one_or_none() is None:
+                db_revoked = RevokedToken(
+                    jti=jti,
+                    token_type="refresh",
+                    user_id=user_id,
+                    client_id=token_client_id or client_id,
+                    token_family_id=token_family_id,
+                    expires_at=expires_at.replace(tzinfo=None),
+                )
+                db.add(db_revoked)
+                revoked_count = 1
+
+        await db.commit()
+        return RevokeTokenResult(success=True, revoked_count=revoked_count)
+
+    else:
+        return RevokeTokenResult(success=False, error="unsupported_token_type")

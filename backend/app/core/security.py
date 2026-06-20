@@ -3,13 +3,17 @@ import hashlib
 import re
 import secrets
 import string
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
 from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .settings import settings
+from ..models import RevokedToken
 
 
 PKCE_CODE_VERIFIER_PATTERN = re.compile(r"^[A-Za-z0-9\-._~]{43,128}$")
@@ -100,34 +104,38 @@ def create_access_token(
     subject: str | int,
     additional_claims: dict[str, Any] | None = None,
     expires_delta: timedelta | None = None,
-) -> str:
+) -> tuple[str, str]:
     to_encode = additional_claims.copy() if additional_claims else {}
+    jti = str(uuid.uuid4())
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.access_token_expire_minutes
         )
-    to_encode.update({"exp": expire, "sub": str(subject), "type": "access"})
+    to_encode.update({"exp": expire, "sub": str(subject), "type": "access", "jti": jti})
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-    return encoded_jwt
+    return encoded_jwt, jti
 
 
 def create_refresh_token(
     subject: str | int,
     additional_claims: dict[str, Any] | None = None,
     expires_delta: timedelta | None = None,
-) -> str:
+) -> tuple[str, str]:
     to_encode = additional_claims.copy() if additional_claims else {}
+    jti = additional_claims.get("jti") if additional_claims else None
+    if jti is None:
+        jti = str(uuid.uuid4())
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
             days=settings.refresh_token_expire_days
         )
-    to_encode.update({"exp": expire, "sub": str(subject), "type": "refresh"})
+    to_encode.update({"exp": expire, "sub": str(subject), "type": "refresh", "jti": jti})
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-    return encoded_jwt
+    return encoded_jwt, jti
 
 
 def create_authorization_code(
@@ -147,9 +155,33 @@ def create_authorization_code(
     return code, expire
 
 
-def verify_token(
+async def is_token_revoked(
+    db: AsyncSession,
+    jti: str | None,
+    token_family_id: str | None,
+) -> bool:
+    if jti:
+        result = await db.execute(
+            select(RevokedToken).where(RevokedToken.jti == jti)
+        )
+        if result.scalar_one_or_none() is not None:
+            return True
+    if token_family_id:
+        family_result = await db.execute(
+            select(RevokedToken).where(
+                RevokedToken.token_family_id == token_family_id,
+                RevokedToken.jti.is_(None),
+            )
+        )
+        if family_result.scalar_one_or_none() is not None:
+            return True
+    return False
+
+
+async def verify_token(
     token: str,
     expected_type: str | None = "access",
+    db: AsyncSession | None = None,
 ) -> dict[str, Any] | None:
     try:
         payload = jwt.decode(
@@ -158,6 +190,11 @@ def verify_token(
         if expected_type is not None:
             token_type = payload.get("type")
             if token_type != expected_type:
+                return None
+        if db is not None:
+            jti = payload.get("jti")
+            token_family_id = payload.get("token_family_id")
+            if await is_token_revoked(db, jti, token_family_id):
                 return None
         return payload
     except JWTError:

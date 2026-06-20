@@ -16,6 +16,7 @@ from ..schemas import (
     UserCodeVerifyRequest,
     DeviceAuthorizationActionRequest,
     PublicDeviceVerifyResponse,
+    RevokeResponse,
 )
 from ..services import (
     get_client_by_id,
@@ -25,8 +26,11 @@ from ..services import (
     refresh_access_token,
     introspect_token,
     authenticate_user,
+    revoke_token,
+    validate_client_credentials,
     ExchangeCodeResult,
     RefreshTokenResult,
+    RevokeTokenResult,
     create_device_authorization,
     exchange_device_code,
     list_device_authorizations,
@@ -440,6 +444,40 @@ async def introspect_endpoint(
 ) -> IntrospectResponse:
     result = await introspect_token(db, token, token_type_hint)
     return IntrospectResponse(**result)
+
+
+@router.post("/revoke", response_model=RevokeResponse)
+async def revoke_endpoint(
+    token: str = Form(...),
+    token_type_hint: str | None = Form(None),
+    client_id: str = Form(...),
+    client_secret: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+) -> RevokeResponse:
+    client = await validate_client_credentials(db, client_id, client_secret)
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid client credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    result: RevokeTokenResult = await revoke_token(
+        db, token, client_id, token_type_hint
+    )
+
+    if not result.success:
+        error_map = {
+            "invalid_token": "Invalid token",
+            "invalid_client": "Token does not belong to this client",
+            "unsupported_token_type": "Unsupported token type",
+        }
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_map.get(result.error, "Token revocation failed"),
+        )
+
+    return RevokeResponse(revoked=True, revoked_count=result.revoked_count)
 
 
 @router.get("/userinfo")

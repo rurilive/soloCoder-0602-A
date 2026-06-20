@@ -92,3 +92,8 @@ class PublicDeviceVerifyResponse(BaseModel):
     status: str
     expires_at: datetime
 
+
+class RevokeResponse(BaseModel):
+    revoked: bool
+    revoked_count: int = 0
+

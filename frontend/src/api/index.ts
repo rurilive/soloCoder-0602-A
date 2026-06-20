@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { User, Client, TokenResponse, CreateClientRequest, UpdateClientRequest, IntrospectResponse, DeviceAuthorization, DeviceAuthorizationResponse, UserCodeVerifyResponse } from '../types'
+import type { User, Client, TokenResponse, CreateClientRequest, UpdateClientRequest, IntrospectResponse, RevokeResponse, DeviceAuthorization, DeviceAuthorizationResponse, UserCodeVerifyResponse } from '../types'
 
 const api = axios.create({
   baseURL: '/',
@@ -78,6 +78,18 @@ export const oauthAPI = {
       '/introspect',
       new URLSearchParams({
         token,
+        ...(tokenTypeHint && { token_type_hint: tokenTypeHint }),
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+
+  revoke: (token: string, clientId: string, clientSecret: string, tokenTypeHint?: string) =>
+    api.post<RevokeResponse>(
+      '/revoke',
+      new URLSearchParams({
+        token,
+        client_id: clientId,
+        client_secret: clientSecret,
         ...(tokenTypeHint && { token_type_hint: tokenTypeHint }),
       }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }

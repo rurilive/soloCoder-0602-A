@@ -37,6 +37,11 @@ export interface IntrospectResponse {
   token_family_id?: string
 }
 
+export interface RevokeResponse {
+  revoked: boolean
+  revoked_count: number
+}
+
 export interface CreateClientRequest {
   name: string
   description?: string

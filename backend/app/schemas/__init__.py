@@ -18,6 +18,7 @@ from .oauth2 import (
     UserCodeVerifyRequest,
     DeviceAuthorizationActionRequest,
     PublicDeviceVerifyResponse,
+    RevokeResponse,
 )
 
 __all__ = [
@@ -41,4 +42,5 @@ __all__ = [
     "UserCodeVerifyRequest",
     "DeviceAuthorizationActionRequest",
     "PublicDeviceVerifyResponse",
+    "RevokeResponse",
 ]

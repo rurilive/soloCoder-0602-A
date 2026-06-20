@@ -65,7 +65,7 @@ async def login_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(
+    access_token, _jti = create_access_token(
         subject=db_user.id,
         additional_claims={"username": db_user.username, "email": db_user.email},
     )
@@ -85,7 +85,7 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
-    payload = verify_token(token)
+    payload = await verify_token(token, db=db)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -107,7 +107,7 @@ async def get_current_active_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    payload = verify_token(token)
+    payload = await verify_token(token, db=db)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

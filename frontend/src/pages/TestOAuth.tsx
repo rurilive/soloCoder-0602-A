@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { clientsAPI, oauthAPI } from '../api'
-import type { Client, TokenResponse, IntrospectResponse } from '../types'
+import type { Client, TokenResponse, IntrospectResponse, RevokeResponse } from '../types'
 
 const STORAGE_KEYS = {
   SELECTED_CLIENT_ID: 'oauth_test_selected_client_id',
@@ -76,6 +76,8 @@ export default function TestOAuth() {
   const [isInitialized, setIsInitialized] = useState(false)
   const [pkceEnabled, setPkceEnabled] = useState(true)
   const [replayDetected, setReplayDetected] = useState(false)
+  const [accessTokenRevoked, setAccessTokenRevoked] = useState(false)
+  const [refreshTokenRevoked, setRefreshTokenRevoked] = useState(false)
 
   const redirectUri = 'http://localhost:1112/test'
 
@@ -317,6 +319,8 @@ export default function TestOAuth() {
 
     setError('')
     setReplayDetected(false)
+    setAccessTokenRevoked(false)
+    setRefreshTokenRevoked(false)
     setStep(1)
     setTokenResponse(null)
     setUserInfo(null)
@@ -538,6 +542,145 @@ export default function TestOAuth() {
     }
   }
 
+  const revokeAccessToken = async () => {
+    const client = getSelectedClientWithSecret()
+    if (!client || !client.client_secret || !tokenResponse?.access_token) {
+      setError('请先完成 OAuth2.0 流程以获取 access token')
+      return
+    }
+
+    setLoading(true)
+    addLog('🗑️  撤销 Access Token...')
+    addLog(`   目标 Token: ${tokenResponse.access_token.substring(0, 20)}...`)
+
+    try {
+      const response = await oauthAPI.revoke(
+        tokenResponse.access_token,
+        client.client_id,
+        client.client_secret,
+        'access_token'
+      )
+      setAccessTokenRevoked(true)
+      addLog(`✅ Access Token 撤销成功! 撤销记录数: ${response.data.revoked_count}`)
+
+      addLog('🧪 立即验证：调用 /userinfo 接口...')
+      try {
+        await oauthAPI.userinfo(tokenResponse.access_token)
+        addLog('   ❌ 验证失败：/userinfo 居然返回成功，撤销可能未生效！')
+      } catch (verifyErr: any) {
+        const status = verifyErr.response?.status
+        const errMsg = verifyErr.response?.data?.detail || verifyErr.message
+        if (status === 401) {
+          addLog(`   ✅ 验证通过：/userinfo 返回 401，撤销已生效!`)
+          addLog(`   错误信息: ${errMsg}`)
+        } else {
+          addLog(`   ⚠️  /userinfo 返回状态码 ${status}，错误信息: ${errMsg}`)
+        }
+      }
+
+      addLog('🧪 再次验证：内省 Access Token...')
+      try {
+        const introResp = await oauthAPI.introspect(tokenResponse.access_token, 'access')
+        if (!introResp.data.active) {
+          addLog(`   ✅ 内省验证通过：Token 状态已变为无效!`)
+        } else {
+          addLog(`   ❌ 内省验证失败：Token 仍显示为有效!`)
+        }
+      } catch (introErr: any) {
+        addLog(`   ⚠️  内省请求出错: ${introErr.response?.data?.detail || introErr.message}`)
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message
+      const chineseTip = getErrorChineseTip(errorMsg)
+      addLog(`❌ Access Token 撤销失败: ${errorMsg}`)
+      if (chineseTip) {
+        addLog(`   💡 中文提示: ${chineseTip}`)
+      }
+      setError('Access Token 撤销失败: ' + errorMsg + (chineseTip ? '\n\n💡 ' + chineseTip : ''))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const revokeRefreshToken = async () => {
+    const client = getSelectedClientWithSecret()
+    if (!client || !client.client_secret || !tokenResponse?.refresh_token) {
+      setError('请先完成 OAuth2.0 流程以获取 refresh token')
+      return
+    }
+
+    setLoading(true)
+    addLog('🗑️  撤销 Refresh Token (将同时撤销同一批次所有 Token)...')
+    addLog(`   目标 Refresh Token: ${tokenResponse.refresh_token.substring(0, 20)}...`)
+    if (tokenResponse.token_family_id) {
+      addLog(`   Token Family ID: ${tokenResponse.token_family_id.substring(0, 20)}...`)
+    }
+
+    try {
+      const response = await oauthAPI.revoke(
+        tokenResponse.refresh_token,
+        client.client_id,
+        client.client_secret,
+        'refresh_token'
+      )
+      setRefreshTokenRevoked(true)
+      setAccessTokenRevoked(true)
+      addLog(`✅ Refresh Token 撤销成功! 影响的 Token 数: ${response.data.revoked_count}`)
+
+      addLog('🧪 验证1：尝试使用已撤销的 Refresh Token 刷新...')
+      try {
+        await oauthAPI.refreshToken(tokenResponse.refresh_token, client.client_id, client.client_secret)
+        addLog('   ❌ 验证失败：刷新居然成功了，撤销可能未生效！')
+      } catch (refreshErr: any) {
+        const status = refreshErr.response?.status
+        const errMsg = refreshErr.response?.data?.detail || refreshErr.message
+        if (status === 400 || status === 401) {
+          addLog(`   ✅ 验证通过：刷新 Token 返回 ${status}，撤销已生效!`)
+          addLog(`   错误信息: ${errMsg}`)
+        } else {
+          addLog(`   ⚠️  刷新 Token 返回状态码 ${status}，错误信息: ${errMsg}`)
+        }
+      }
+
+      addLog('🧪 验证2：调用 /userinfo 检查 Access Token 是否同时失效...')
+      try {
+        await oauthAPI.userinfo(tokenResponse.access_token)
+        addLog('   ❌ 验证失败：/userinfo 居然返回成功，Access Token 可能未被连带撤销！')
+      } catch (verifyErr: any) {
+        const status = verifyErr.response?.status
+        const errMsg = verifyErr.response?.data?.detail || verifyErr.message
+        if (status === 401) {
+          addLog(`   ✅ 验证通过：/userinfo 返回 401，Access Token 已连带失效!`)
+          addLog(`   错误信息: ${errMsg}`)
+        } else {
+          addLog(`   ⚠️  /userinfo 返回状态码 ${status}，错误信息: ${errMsg}`)
+        }
+      }
+
+      addLog('🧪 验证3：内省 Refresh Token...')
+      try {
+        const introResp = await oauthAPI.introspect(tokenResponse.refresh_token, 'refresh')
+        if (!introResp.data.active) {
+          addLog(`   ✅ 内省验证通过：Refresh Token 状态已变为无效!`)
+        } else {
+          addLog(`   ❌ 内省验证失败：Refresh Token 仍显示为有效!`)
+        }
+      } catch (introErr: any) {
+        addLog(`   ⚠️  内省请求出错: ${introErr.response?.data?.detail || introErr.message}`)
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.message
+      const chineseTip = getErrorChineseTip(errorMsg)
+      addLog(`❌ Refresh Token 撤销失败: ${errorMsg}`)
+      if (chineseTip) {
+        addLog(`   💡 中文提示: ${chineseTip}`)
+      }
+      setError('Refresh Token 撤销失败: ' + errorMsg + (chineseTip ? '\n\n💡 ' + chineseTip : ''))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const resetTest = () => {
     setStep(0)
     setTokenResponse(null)
@@ -545,6 +688,8 @@ export default function TestOAuth() {
     setIntrospectResult(null)
     setError('')
     setReplayDetected(false)
+    setAccessTokenRevoked(false)
+    setRefreshTokenRevoked(false)
     setLog([])
     sessionStorage.removeItem(STORAGE_KEYS.OAUTH_STATE)
     sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER)
@@ -785,6 +930,28 @@ export default function TestOAuth() {
                     🔍 内省 Refresh Token
                   </button>
                 )}
+                <button
+                  onClick={revokeAccessToken}
+                  disabled={loading || accessTokenRevoked}
+                  style={{
+                    ...styles.warnBtn,
+                    ...((loading || accessTokenRevoked) ? styles.disabledBtn : {}),
+                  }}
+                >
+                  {accessTokenRevoked ? '✅ Access Token 已撤销' : '🗑️ 撤销 Access Token'}
+                </button>
+                {tokenResponse.refresh_token && (
+                  <button
+                    onClick={revokeRefreshToken}
+                    disabled={loading || refreshTokenRevoked}
+                    style={{
+                      ...styles.dangerBtn,
+                      ...((loading || refreshTokenRevoked) ? styles.disabledBtn : {}),
+                    }}
+                  >
+                    {refreshTokenRevoked ? '✅ Refresh Token 已撤销' : '🗑️ 撤销 Refresh Token (全族)'}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1009,6 +1176,17 @@ const styles = {
   primaryBtn: {
     padding: '12px 24px',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  warnBtn: {
+    padding: '12px 24px',
+    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
     color: 'white',
     border: 'none',
     borderRadius: '8px',
