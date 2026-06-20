@@ -2464,6 +2464,33 @@ textarea.form-control {
   border-color: var(--warning);
 }
 
+.private-reply-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #ede9fe;
+  color: #7c3aed;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.private-reply-allowed-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #ede9fe;
+  color: #7c3aed;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.reply-item.is-private {
+  border-left: 3px solid #7c3aed;
+  background: #faf5ff;
+}
+
 /* Review Tabs */
 .review-tabs {
   display: flex;

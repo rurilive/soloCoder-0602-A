@@ -69,6 +69,7 @@ class PostCreate(BaseModel):
     title: str
     content: str
     scheduled_at: datetime | None = None
+    allow_private_replies: bool = False
     tag_names: list[str] = []
 
 
@@ -77,6 +78,7 @@ class PostUpdate(BaseModel):
     content: str | None = None
     edit_reason: str | None = None
     scheduled_at: datetime | None | str = "UNCHANGED"
+    allow_private_replies: bool | None = None
     tag_names: list[str] | None = None
 
 
@@ -111,6 +113,7 @@ class ReplyResponse(BaseModel):
     is_deleted: bool
     is_hidden: bool = False
     is_pending_review: bool = False
+    is_private: bool = False
     created_at: datetime
     children: list["ReplyResponse"] = []
 
@@ -131,6 +134,7 @@ class PostResponse(BaseModel):
     is_deleted: bool
     is_hidden: bool = False
     is_pending_review: bool = False
+    allow_private_replies: bool = False
     is_scheduled: bool = False
     scheduled_at: datetime | None = None
     view_count: int
@@ -151,6 +155,7 @@ class PostListResponse(BaseModel):
     author: AuthorBrief
     is_pinned: bool
     is_deleted: bool
+    allow_private_replies: bool = False
     is_scheduled: bool = False
     scheduled_at: datetime | None = None
     view_count: int
@@ -165,6 +170,7 @@ class PostListResponse(BaseModel):
 class ReplyCreate(BaseModel):
     content: str
     parent_id: int | None = None
+    is_private: bool = False
 
 
 class ModeratorCreate(BaseModel):

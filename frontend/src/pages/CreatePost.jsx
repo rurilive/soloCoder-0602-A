@@ -22,6 +22,7 @@ export default function CreatePost() {
   const [pollError, setPollError] = useState('')
   const [pollRetrying, setPollRetrying] = useState(false)
   const [tags, setTags] = useState([])
+  const [allowPrivateReplies, setAllowPrivateReplies] = useState(false)
 
   const addPollOption = () => {
     if (pollOptions.length >= 20) return
@@ -97,6 +98,7 @@ export default function CreatePost() {
         payload.scheduled_at = new Date(scheduledAt).toISOString()
       }
       payload.tag_names = tags.map((t) => t.name)
+      payload.allow_private_replies = allowPrivateReplies
       const res = await api.post(`/api/sections/${sectionId}/posts`, payload)
       const postId = res.data.id
 
@@ -176,6 +178,21 @@ export default function CreatePost() {
           <div className="form-group">
             <label>标签</label>
             <TagInput tags={tags} onChange={setTags} maxTags={5} />
+          </div>
+          <div className="form-group scheduled-publish-group">
+            <label className="scheduled-publish-label">
+              <input
+                type="checkbox"
+                checked={allowPrivateReplies}
+                onChange={(e) => setAllowPrivateReplies(e.target.checked)}
+              />
+              <span>允许仅作者可见回复</span>
+            </label>
+            {allowPrivateReplies && (
+              <small style={{ color: 'var(--text-light)', marginTop: 4, display: 'block' }}>
+                开启后，回复者可将回复标记为仅帖子和回复作者可见
+              </small>
+            )}
           </div>
           <div className="form-group scheduled-publish-group">
             <label className="scheduled-publish-label">

@@ -20,6 +20,8 @@ export default function EditPost() {
   const [originalScheduledAt, setOriginalScheduledAt] = useState(null)
   const [tags, setTags] = useState([])
   const [originalTags, setOriginalTags] = useState([])
+  const [allowPrivateReplies, setAllowPrivateReplies] = useState(false)
+  const [originalAllowPrivateReplies, setOriginalAllowPrivateReplies] = useState(false)
 
   useEffect(() => {
     api.get(`/api/posts/${id}`)
@@ -31,6 +33,8 @@ export default function EditPost() {
         const loadedTags = res.data.tags || []
         setTags(loadedTags)
         setOriginalTags(loadedTags)
+        setAllowPrivateReplies(res.data.allow_private_replies || false)
+        setOriginalAllowPrivateReplies(res.data.allow_private_replies || false)
         if (res.data.is_scheduled && res.data.scheduled_at) {
           setIsScheduled(true)
           const dt = new Date(res.data.scheduled_at)
@@ -44,7 +48,7 @@ export default function EditPost() {
   }, [id])
 
   const hasTagChanges = JSON.stringify(tags.map(t => t.name).sort()) !== JSON.stringify(originalTags.map(t => t.name).sort())
-  const hasChanges = title !== originalTitle || content !== originalContent || hasTagChanges
+  const hasChanges = title !== originalTitle || content !== originalContent || hasTagChanges || allowPrivateReplies !== originalAllowPrivateReplies
 
   const getMinDatetime = () => {
     const now = new Date()
@@ -88,6 +92,9 @@ export default function EditPost() {
       if (hasTagChanges) {
         payload.tag_names = tags.map((t) => t.name)
       }
+      if (allowPrivateReplies !== originalAllowPrivateReplies) {
+        payload.allow_private_replies = allowPrivateReplies
+      }
       const res = await api.put(`/api/posts/${id}`, payload)
       navigate(`/post/${res.data.id}`)
     } catch (err) {
@@ -116,6 +123,21 @@ export default function EditPost() {
           <div className="form-group">
             <label>标签</label>
             <TagInput tags={tags} onChange={setTags} maxTags={5} />
+          </div>
+          <div className="form-group scheduled-publish-group">
+            <label className="scheduled-publish-label">
+              <input
+                type="checkbox"
+                checked={allowPrivateReplies}
+                onChange={(e) => setAllowPrivateReplies(e.target.checked)}
+              />
+              <span>允许仅作者可见回复</span>
+            </label>
+            {allowPrivateReplies && (
+              <small style={{ color: 'var(--text-light)', marginTop: 4, display: 'block' }}>
+                开启后，回复者可将回复标记为仅帖子和回复作者可见
+              </small>
+            )}
           </div>
           <div className="form-group">
             <label>编辑原因 <span style={{ color: 'var(--danger)' }}>*</span></label>

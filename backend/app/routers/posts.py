@@ -133,6 +133,7 @@ def _build_flat_reply_response(reply: Reply) -> ReplyResponse:
         is_deleted=reply.is_deleted,
         is_hidden=reply.is_hidden,
         is_pending_review=reply.is_pending_review,
+        is_private=reply.is_private,
         created_at=reply.created_at,
     )
 
@@ -160,6 +161,7 @@ def _build_reply_tree(replies: list[Reply]) -> list[ReplyResponse]:
             is_deleted=reply.is_deleted,
             is_hidden=reply.is_hidden,
             is_pending_review=reply.is_pending_review,
+            is_private=reply.is_private,
             created_at=reply.created_at,
             children=[],
         )
@@ -224,10 +226,19 @@ async def list_posts(
 
     response = []
     for post in posts:
+        reply_count_where = [
+            Reply.post_id == post.id,
+            Reply.is_deleted == False,
+        ]
+        if current_user is None or post.author_id != current_user.id:
+            if current_user is not None:
+                reply_count_where.append(
+                    or_(Reply.is_private == False, Reply.author_id == current_user.id)
+                )
+            else:
+                reply_count_where.append(Reply.is_private == False)
         reply_count_result = await db.execute(
-            select(func.count(Reply.id)).where(
-                Reply.post_id == post.id, Reply.is_deleted == False
-            )
+            select(func.count(Reply.id)).where(*reply_count_where)
         )
         reply_count = reply_count_result.scalar() or 0
 
@@ -245,6 +256,7 @@ async def list_posts(
                 ),
                 is_pinned=post.is_pinned,
                 is_deleted=post.is_deleted,
+                allow_private_replies=post.allow_private_replies,
                 is_scheduled=_is_scheduled(post),
                 scheduled_at=post.scheduled_at,
                 view_count=post.view_count,
@@ -287,6 +299,7 @@ async def create_post(
         section_id=section_id,
         author_id=current_user.id,
         is_pending_review=is_pending,
+        allow_private_replies=post_data.allow_private_replies,
         scheduled_at=post_data.scheduled_at,
     )
     db.add(post)
@@ -358,6 +371,7 @@ async def create_post(
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
         is_pending_review=post.is_pending_review,
+        allow_private_replies=post.allow_private_replies,
         is_scheduled=_is_scheduled(post),
         scheduled_at=post.scheduled_at,
         view_count=post.view_count,
@@ -430,6 +444,9 @@ async def get_post(
             continue
         if reply.is_pending_review and not is_mod and not (current_user and reply.author_id == current_user.id):
             continue
+        if reply.is_private:
+            if not is_mod and not is_author and not (current_user and reply.author_id == current_user.id):
+                continue
         reply_responses.append(
             ReplyResponse(
                 id=reply.id,
@@ -447,6 +464,7 @@ async def get_post(
                 is_deleted=reply.is_deleted,
                 is_hidden=reply.is_hidden,
                 is_pending_review=reply.is_pending_review,
+                is_private=reply.is_private,
                 created_at=reply.created_at,
             )
         )
@@ -467,6 +485,7 @@ async def get_post(
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
         is_pending_review=post.is_pending_review,
+        allow_private_replies=post.allow_private_replies,
         is_scheduled=_is_scheduled(post),
         scheduled_at=post.scheduled_at,
         view_count=post.view_count,
@@ -496,6 +515,10 @@ async def update_post(
         raise HTTPException(status_code=403, detail="只能编辑自己的帖子")
 
     needs_commit = False
+
+    if post_data.allow_private_replies is not None:
+        post.allow_private_replies = post_data.allow_private_replies
+        needs_commit = True
 
     if post_data.scheduled_at != "UNCHANGED":
         if post_data.scheduled_at is not None and post_data.scheduled_at <= datetime.utcnow():
@@ -603,6 +626,7 @@ async def update_post(
     post = result.scalar_one()
 
     _is_mod = await is_moderator(db, current_user)
+    _is_author = post.author_id == current_user.id
 
     is_favorited = False
     fav_result = await db.execute(
@@ -621,6 +645,9 @@ async def update_post(
             continue
         if reply.is_pending_review and not _is_mod and not (reply.author_id == current_user.id):
             continue
+        if reply.is_private:
+            if not _is_mod and not _is_author and reply.author_id != current_user.id:
+                continue
         reply_responses.append(
             ReplyResponse(
                 id=reply.id,
@@ -638,6 +665,7 @@ async def update_post(
                 is_deleted=reply.is_deleted,
                 is_hidden=reply.is_hidden,
                 is_pending_review=reply.is_pending_review,
+                is_private=reply.is_private,
                 created_at=reply.created_at,
             )
         )
@@ -658,6 +686,7 @@ async def update_post(
         is_deleted=post.is_deleted,
         is_hidden=post.is_hidden,
         is_pending_review=post.is_pending_review,
+        allow_private_replies=post.allow_private_replies,
         is_scheduled=_is_scheduled(post),
         scheduled_at=post.scheduled_at,
         view_count=post.view_count,
@@ -963,6 +992,9 @@ async def create_reply(
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
+    if reply_data.is_private and not post.allow_private_replies:
+        raise HTTPException(status_code=400, detail="该帖子未开启仅作者可见回复功能")
+
     parent_reply = None
     if reply_data.parent_id is not None:
         parent_result = await db.execute(
@@ -988,6 +1020,7 @@ async def create_reply(
         parent_id=reply_data.parent_id,
         floor_number=floor_number,
         is_pending_review=is_pending,
+        is_private=reply_data.is_private,
     )
     db.add(reply)
     await db.flush()
@@ -1058,6 +1091,7 @@ def _build_reply_subtree(
             is_deleted=reply.is_deleted,
             is_hidden=reply.is_hidden,
             is_pending_review=reply.is_pending_review,
+            is_private=reply.is_private,
             created_at=reply.created_at,
             children=[],
         )
@@ -1091,10 +1125,19 @@ async def list_replies(
     result = await db.execute(
         select(Post).where(Post.id == post_id, Post.is_deleted == False)
     )
-    if not result.scalar_one_or_none():
+    post = result.scalar_one_or_none()
+    if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
 
     is_mod = await is_moderator(db, current_user)
+    is_post_author = current_user is not None and post.author_id == current_user.id
+
+    private_filter = None
+    if not is_mod and not is_post_author:
+        if current_user is not None:
+            private_filter = or_(Reply.is_private == False, Reply.author_id == current_user.id)
+        else:
+            private_filter = Reply.is_private == False
 
     root_where = [
         Reply.post_id == post_id,
@@ -1107,6 +1150,8 @@ async def list_replies(
             root_where.append(or_(Reply.is_pending_review == False, Reply.author_id == current_user.id))
         else:
             root_where.append(Reply.is_pending_review == False)
+    if private_filter is not None:
+        root_where.append(private_filter)
 
     count_result = await db.execute(
         select(func.count(Reply.id)).where(*root_where)
@@ -1135,6 +1180,8 @@ async def list_replies(
             all_where.append(or_(Reply.is_pending_review == False, Reply.author_id == current_user.id))
         else:
             all_where.append(Reply.is_pending_review == False)
+    if private_filter is not None:
+        all_where.append(private_filter)
 
     all_replies_stmt = (
         select(Reply)
@@ -1205,7 +1252,7 @@ async def search_posts(
             Reply.post_id.label("rc_post_id"),
             func.count(Reply.id).label("rc_count"),
         )
-        .where(Reply.is_deleted == False)
+        .where(Reply.is_deleted == False, Reply.is_private == False)
         .group_by(Reply.post_id)
         .subquery()
     )

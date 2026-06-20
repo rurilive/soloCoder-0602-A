@@ -150,7 +150,7 @@ function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
   }
 
   return (
-    <div className={`reply-item ${reply.is_deleted ? 'deleted' : ''} ${reply.is_pending_review ? 'pending-review' : ''}`}>
+    <div className={`reply-item ${reply.is_deleted ? 'deleted' : ''} ${reply.is_pending_review ? 'pending-review' : ''} ${reply.is_private ? 'is-private' : ''}`}>
       <div className="reply-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span className="reply-floor">#{reply.floor_number}楼</span>
@@ -161,6 +161,7 @@ function ReplyItem({ reply, onReply, onReport, depth = 0 }) {
             {reply.author?.username || '未知'}
           </span>
           {reply.is_pending_review && <span className="pending-review-badge">审核中</span>}
+          {reply.is_private && <span className="private-reply-badge">🔒 仅作者可见</span>}
         </div>
         <div className="reply-actions">
           <span className="reply-date">{new Date(reply.created_at).toLocaleString()}</span>
@@ -375,6 +376,7 @@ export default function PostDetail() {
   const [replies, setReplies] = useState([])
   const [replyContent, setReplyContent] = useState('')
   const [replyTo, setReplyTo] = useState(null)
+  const [isPrivateReply, setIsPrivateReply] = useState(false)
   const [skip, setSkip] = useState(0)
   const [total, setTotal] = useState(0)
   const [hasMore, setHasMore] = useState(true)
@@ -567,6 +569,7 @@ export default function PostDetail() {
   const handleCancelReply = () => {
     setReplyTo(null)
     setReplyContent('')
+    setIsPrivateReply(false)
   }
 
   const handleFavorite = async () => {
@@ -648,9 +651,11 @@ export default function PostDetail() {
       const res = await api.post(`/api/posts/${id}/replies`, {
         content: replyContent,
         parent_id: replyTo?.id || null,
+        is_private: isPrivateReply,
       })
       setReplyContent('')
       setReplyTo(null)
+      setIsPrivateReply(false)
       if (res.data.is_pending_review) {
         alert('您的回复已提交，正在审核中，审核通过后将正常展示')
       }
@@ -734,6 +739,7 @@ export default function PostDetail() {
             {post.is_deleted && <span className="deleted-badge">已删除</span>}
             {post.is_pending_review && <span className="pending-review-badge">审核中</span>}
             {post.is_scheduled && <span className="scheduled-badge">定时发布</span>}
+            {post.allow_private_replies && <span className="private-reply-allowed-badge">🔒 允许私密回复</span>}
           </div>
           <div className="post-detail-meta">
             <span className="post-detail-author">
@@ -888,6 +894,17 @@ export default function PostDetail() {
               )}
               <form onSubmit={handleReply}>
                 <MarkdownEditor value={replyContent} onChange={setReplyContent} />
+                {post.allow_private_replies && (
+                  <label className="private-reply-toggle" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input
+                      type="checkbox"
+                      checked={isPrivateReply}
+                      onChange={(e) => setIsPrivateReply(e.target.checked)}
+                    />
+                    <span>🔒 仅作者可见</span>
+                    <small style={{ color: 'var(--text-light)' }}>仅帖子和回复作者可见</small>
+                  </label>
+                )}
                 <button className="btn btn-primary" type="submit" disabled={submitting} style={{ marginTop: 12 }}>
                   {submitting ? '发送中...' : '发送回复'}
                 </button>
