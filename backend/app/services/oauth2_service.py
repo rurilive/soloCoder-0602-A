@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,35 @@ from ..core import (
     settings,
 )
 from .client_service import validate_client_credentials, validate_redirect_uri
+
+
+@dataclass
+class ExchangeCodeResult:
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_in: int | None = None
+    scope: str | None = None
+    token_family_id: str | None = None
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.error is None
+
+
+@dataclass
+class RefreshTokenResult:
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_in: int | None = None
+    scope: str | None = None
+    token_family_id: str | None = None
+    replay_detected: bool = False
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.error is None and not self.replay_detected
 
 
 def _to_aware(dt: datetime) -> datetime:
@@ -191,24 +221,24 @@ async def exchange_authorization_code(
     code: str,
     redirect_uri: str,
     code_verifier: str | None = None,
-) -> tuple[str, str, int, str, str] | None:
+) -> ExchangeCodeResult:
     client = await validate_client_credentials(db, client_id, client_secret)
     if client is None:
-        return None
+        return ExchangeCodeResult(error="invalid_client")
 
     auth_code = await validate_authorization_code(db, code, client_id, redirect_uri)
     if auth_code is None:
-        return None
+        return ExchangeCodeResult(error="invalid_code")
 
     if auth_code.code_challenge:
         if not code_verifier:
-            return None
+            return ExchangeCodeResult(error="pkce_verifier_missing")
         if not verify_pkce(
             code_verifier,
             auth_code.code_challenge,
             auth_code.code_challenge_method or "S256",
         ):
-            return None
+            return ExchangeCodeResult(error="pkce_verification_failed")
 
     await mark_authorization_code_used(db, auth_code)
 
@@ -217,7 +247,13 @@ async def exchange_authorization_code(
         db, auth_code.user_id, client_id, scope
     )
 
-    return access_token, refresh_token, expires_in, scope, token_family_id
+    return ExchangeCodeResult(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+        scope=scope,
+        token_family_id=token_family_id,
+    )
 
 
 async def refresh_access_token(
@@ -225,27 +261,28 @@ async def refresh_access_token(
     client_id: str,
     client_secret: str,
     refresh_token: str,
-) -> tuple[str, str, int, str, str, bool] | None:
+) -> RefreshTokenResult:
     client = await validate_client_credentials(db, client_id, client_secret)
     if client is None:
-        return None
+        return RefreshTokenResult(error="invalid_client")
 
     db_token, was_revoked = await validate_refresh_token(db, refresh_token, client_id)
     if db_token is None:
-        return None
-
-    replay_detected = False
+        return RefreshTokenResult(error="invalid_token")
 
     if was_revoked:
-        replay_detected = True
-        if db_token.token_family_id:
+        family_id = db_token.token_family_id
+        if family_id:
             await revoke_all_tokens_in_family(
                 db,
                 db_token.user_id,
                 db_token.client_id,
-                db_token.token_family_id,
+                family_id,
             )
-        return None, None, None, None, None, replay_detected
+        return RefreshTokenResult(
+            replay_detected=True,
+            token_family_id=family_id,
+        )
 
     current_family_id = db_token.token_family_id or str(uuid.uuid4())
 
@@ -256,7 +293,13 @@ async def refresh_access_token(
         db, db_token.user_id, client_id, scope, token_family_id=current_family_id
     )
 
-    return new_access_token, new_refresh_token, expires_in, scope, current_family_id, replay_detected
+    return RefreshTokenResult(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        expires_in=expires_in,
+        scope=scope,
+        token_family_id=current_family_id,
+    )
 
 
 async def introspect_token(

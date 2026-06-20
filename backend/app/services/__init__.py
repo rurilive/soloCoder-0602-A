@@ -26,6 +26,8 @@ from .oauth2_service import (
     exchange_authorization_code,
     refresh_access_token,
     introspect_token,
+    ExchangeCodeResult,
+    RefreshTokenResult,
 )
 
 __all__ = [
@@ -52,4 +54,6 @@ __all__ = [
     "exchange_authorization_code",
     "refresh_access_token",
     "introspect_token",
+    "ExchangeCodeResult",
+    "RefreshTokenResult",
 ]

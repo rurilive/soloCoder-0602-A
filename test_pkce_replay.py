@@ -164,11 +164,11 @@ async def test_4_pkce_wrong_verifier_rejected(
     client_id: str,
     client_secret: str,
 ) -> None:
-    print_section("步骤 4: PKCE 安全性 - 错误的 code_verifier 应被拒绝")
+    print_section("步骤 4: PKCE 安全性 - 错误的 code_verifier / 缺失 verifier / 无效授权码 返回不同错误")
 
-    # 生成一对新的 verifier/challenge，但使用另一个 verifier 去交换
+    # 4a: 错误的 code_verifier -> "PKCE verification failed: code_verifier does not match"
     real_verifier = generate_code_verifier(64)
-    wrong_verifier = generate_code_verifier(64)  # 故意用不同的
+    wrong_verifier = generate_code_verifier(64)
     real_challenge = compute_code_challenge_s256(real_verifier)
     assert real_verifier != wrong_verifier
 
@@ -194,7 +194,6 @@ async def test_4_pkce_wrong_verifier_rejected(
     params = urllib.parse.parse_qs(query)
     auth_code = params["code"][0]
 
-    # 使用错误的 code_verifier
     resp = await client.post(
         f"{BASE_URL}/token",
         data={
@@ -203,12 +202,87 @@ async def test_4_pkce_wrong_verifier_rejected(
             "redirect_uri": REDIRECT_URI,
             "client_id": client_id,
             "client_secret": client_secret,
-            "code_verifier": wrong_verifier,  # 错误！
+            "code_verifier": wrong_verifier,
         },
     )
-    assert resp.status_code == 400, f"错误的 code_verifier 应该被拒绝，但是返回 {resp.status_code}"
-    print_pass(f"错误的 code_verifier 被正确拒绝: HTTP {resp.status_code}")
-    print_info(f"错误消息: {resp.json()['detail']}")
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert "PKCE verification failed" in detail and "does not match" in detail, \
+        f"错误消息应含 PKCE verification failed + does not match，实际: {detail}"
+    print_pass(f"错误 code_verifier 返回 PKCE 专属错误: {detail}")
+
+    # 4b: 缺失 code_verifier (有 code_challenge 时) -> "code_verifier is required but was not provided"
+    code_challenge2 = compute_code_challenge_s256(generate_code_verifier(64))
+    resp = await client.post(
+        f"{BASE_URL}/authorize/submit",
+        data={
+            "client_id": client_id,
+            "redirect_uri": REDIRECT_URI,
+            "scope": "read write",
+            "state": secrets.token_urlsafe(16),
+            "username": "testuser_pkce",
+            "password": "TestPass123!",
+            "action": "approve",
+            "code_challenge": code_challenge2,
+            "code_challenge_method": "S256",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    location2 = resp.headers["Location"]
+    query2 = urllib.parse.urlparse(location2).query
+    params2 = urllib.parse.parse_qs(query2)
+    auth_code2 = params2["code"][0]
+
+    resp2 = await client.post(
+        f"{BASE_URL}/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": auth_code2,
+            "redirect_uri": REDIRECT_URI,
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    assert resp2.status_code == 400
+    detail2 = resp2.json()["detail"]
+    assert "code_verifier is required" in detail2, \
+        f"缺失 verifier 的错误消息不正确: {detail2}"
+    print_pass(f"缺失 code_verifier 返回专属错误: {detail2}")
+
+    # 4c: 完全无效的授权码 -> "Invalid or expired authorization code"
+    resp3 = await client.post(
+        f"{BASE_URL}/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": "totally-invalid-code-12345",
+            "redirect_uri": REDIRECT_URI,
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    assert resp3.status_code == 400
+    detail3 = resp3.json()["detail"]
+    assert "Invalid or expired authorization code" in detail3, \
+        f"无效授权码的错误消息不正确: {detail3}"
+    print_pass(f"无效授权码返回专属错误: {detail3}")
+
+    # 4d: 错误的 client_secret -> "Invalid client credentials"
+    resp4 = await client.post(
+        f"{BASE_URL}/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": "any-code",
+            "redirect_uri": REDIRECT_URI,
+            "client_id": client_id,
+            "client_secret": "wrong-secret-00000000",
+        },
+    )
+    assert resp4.status_code == 400
+    detail4 = resp4.json()["detail"]
+    assert "Invalid client credentials" in detail4, \
+        f"无效客户端的错误消息不正确: {detail4}"
+    print_pass(f"无效客户端凭据返回专属错误: {detail4}")
 
 async def test_5_traditional_flow_without_pkce(
     client: httpx.AsyncClient,
@@ -519,7 +593,7 @@ async def main():
             print("\n  测试结果总结:")
             print("  ✔️  用户注册与客户端注册")
             print("  ✔️  PKCE S256 正常授权流程")
-            print("  ✔️  PKCE 错误 verifier 被拒绝")
+            print("  ✔️  PKCE 错误 verifier / 缺失 verifier / 无效授权码 / 无效客户端 - 错误区分")
             print("  ✔️  传统无 PKCE 流程兼容")
             print("  ✔️  Token Family ID 多轮刷新一致性")
             print("  ✔️  Refresh Token 重放攻击检测")

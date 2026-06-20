@@ -19,6 +19,8 @@ from ..services import (
     refresh_access_token,
     introspect_token,
     authenticate_user,
+    ExchangeCodeResult,
+    RefreshTokenResult,
 )
 from ..schemas import UserLogin
 from .auth import get_current_active_user
@@ -181,19 +183,25 @@ async def token_endpoint(
         result = await exchange_authorization_code(
             db, client_id, client_secret, code, redirect_uri, code_verifier
         )
-        if result is None:
+
+        if not result.success:
+            error_map = {
+                "invalid_client": "Invalid client credentials",
+                "invalid_code": "Invalid or expired authorization code",
+                "pkce_verifier_missing": "PKCE verification failed: code_verifier is required but was not provided",
+                "pkce_verification_failed": "PKCE verification failed: code_verifier does not match code_challenge",
+            }
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid authorization code, client credentials, or PKCE verification failed",
+                detail=error_map.get(result.error, "Authorization code exchange failed"),
             )
 
-        access_token, refresh_token_val, expires_in, scope, token_family_id = result
         return TokenResponse(
-            access_token=access_token,
-            refresh_token=refresh_token_val,
-            expires_in=expires_in,
-            scope=scope,
-            token_family_id=token_family_id,
+            access_token=result.access_token,
+            refresh_token=result.refresh_token,
+            expires_in=result.expires_in,
+            scope=result.scope,
+            token_family_id=result.token_family_id,
         )
 
     elif grant_type == "refresh_token":
@@ -206,26 +214,29 @@ async def token_endpoint(
         result = await refresh_access_token(
             db, client_id, client_secret, refresh_token
         )
-        if result is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid refresh token or client credentials",
-            )
 
-        new_access_token, new_refresh_token, expires_in, scope, token_family_id, replay_detected = result
-
-        if replay_detected:
+        if result.replay_detected:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Replay attack detected: refresh token has been revoked. All tokens in this family have been invalidated.",
             )
 
+        if not result.success:
+            error_map = {
+                "invalid_client": "Invalid client credentials",
+                "invalid_token": "Invalid or expired refresh token",
+            }
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_map.get(result.error, "Invalid refresh token or client credentials"),
+            )
+
         return TokenResponse(
-            access_token=new_access_token,
-            refresh_token=new_refresh_token,
-            expires_in=expires_in,
-            scope=scope,
-            token_family_id=token_family_id,
+            access_token=result.access_token,
+            refresh_token=result.refresh_token,
+            expires_in=result.expires_in,
+            scope=result.scope,
+            token_family_id=result.token_family_id,
         )
 
     else:
