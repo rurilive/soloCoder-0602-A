@@ -472,7 +472,7 @@ async def revoke_endpoint(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Unsupported token type",
             )
-        if result.error == "token_client_mismatch":
+        if result.error in ("token_client_mismatch", "invalid_or_mismatched_token"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Token does not belong to this client",
