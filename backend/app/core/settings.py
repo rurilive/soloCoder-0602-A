@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
     authorization_code_expire_seconds: int = 600
+    device_authorization_expire_seconds: int = 900
+    device_polling_interval: int = 5
 
     algorithm: str = "HS256"
 

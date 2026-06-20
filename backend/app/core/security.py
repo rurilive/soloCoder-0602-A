@@ -68,6 +68,18 @@ def generate_authorization_code() -> str:
     return secrets.token_urlsafe(48)
 
 
+def generate_device_code() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def generate_user_code() -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = "".join(secrets.choice(alphabet) for _ in range(8))
+        formatted = code[:4] + "-" + code[4:]
+        return formatted
+
+
 def get_password_hash(password: str) -> str:
     password_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt()

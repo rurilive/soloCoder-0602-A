@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { User, Client, TokenResponse, CreateClientRequest, UpdateClientRequest, IntrospectResponse } from '../types'
+import type { User, Client, TokenResponse, CreateClientRequest, UpdateClientRequest, IntrospectResponse, DeviceAuthorization, DeviceAuthorizationResponse, UserCodeVerifyResponse } from '../types'
 
 const api = axios.create({
   baseURL: '/',
@@ -88,6 +88,46 @@ export const oauthAPI = {
       '/userinfo',
       { headers: { Authorization: `Bearer ${accessToken}` } }
     ),
+
+  deviceAuthorization: (clientId: string, scope?: string) =>
+    api.post<DeviceAuthorizationResponse>(
+      '/device_authorization',
+      new URLSearchParams({
+        client_id: clientId,
+        ...(scope && { scope }),
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+
+  deviceToken: (deviceCode: string, clientId: string, clientSecret: string) =>
+    api.post<TokenResponse>(
+      '/token',
+      new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: deviceCode,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    ),
+}
+
+export const deviceAuthAPI = {
+  list: (status?: string) =>
+    api.get<DeviceAuthorization[]>('/api/device_authorizations', {
+      params: status ? { status } : {},
+    }),
+
+  approve: (authId: number) =>
+    api.post(`/api/device_authorizations/${authId}/approve`),
+
+  deny: (authId: number) =>
+    api.post(`/api/device_authorizations/${authId}/deny`),
+
+  verifyUserCode: (userCode: string) =>
+    api.post<UserCodeVerifyResponse>('/api/public/device_verify', {
+      user_code: userCode,
+    }),
 }
 
 export default api

@@ -60,3 +60,32 @@ export interface AuthContextType {
   register: (username: string, email: string, password: string) => Promise<void>
   logout: () => void
 }
+
+export interface DeviceAuthorization {
+  id: number
+  device_code: string
+  user_code: string
+  client_id: string
+  client_name: string | null
+  scope: string
+  status: 'pending' | 'approved' | 'denied'
+  user_id: number | null
+  username: string | null
+  expires_at: string
+  interval: number
+  is_used: boolean
+  created_at: string
+  resolved_at: string | null
+}
+
+export interface DeviceAuthorizationResponse {
+  device_code: string
+  user_code: string
+  verification_uri: string
+  verification_uri_complete: string
+  expires_in: number
+  interval: number
+}
+
+export interface UserCodeVerifyResponse extends DeviceAuthorization {
+}

@@ -14,6 +14,8 @@ from .security import (
     compute_code_challenge,
     compute_code_challenge_s256,
     verify_pkce,
+    generate_device_code,
+    generate_user_code,
 )
 
 __all__ = [
@@ -36,4 +38,6 @@ __all__ = [
     "compute_code_challenge",
     "compute_code_challenge_s256",
     "verify_pkce",
+    "generate_device_code",
+    "generate_user_code",
 ]

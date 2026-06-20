@@ -4,12 +4,17 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
+from urllib.parse import urlencode
 
-from ..core import get_db, compute_code_challenge_s256
+from ..core import get_db, compute_code_challenge_s256, settings
 from ..schemas import (
     TokenRequest,
     TokenResponse,
     IntrospectResponse,
+    DeviceAuthorizationResponse,
+    DeviceAuthorizationResponseSchema,
+    UserCodeVerifyRequest,
+    DeviceAuthorizationActionRequest,
 )
 from ..services import (
     get_client_by_id,
@@ -21,6 +26,14 @@ from ..services import (
     authenticate_user,
     ExchangeCodeResult,
     RefreshTokenResult,
+    create_device_authorization,
+    exchange_device_code,
+    list_device_authorizations,
+    get_device_authorization_with_details,
+    get_device_authorization_by_user_code,
+    approve_device_authorization,
+    deny_device_authorization,
+    DeviceCodeTokenResult,
 )
 from ..schemas import UserLogin
 from .auth import get_current_active_user
@@ -30,6 +43,9 @@ router = APIRouter(tags=["OAuth2"])
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+DEVICE_VERIFICATION_BASE_URI = "http://localhost:1112/device"
 
 
 @router.get("/authorize", response_class=HTMLResponse)
@@ -117,7 +133,6 @@ async def authorize_submit(
         params = {"error": "access_denied"}
         if state:
             params["state"] = state
-        from urllib.parse import urlencode
         return RedirectResponse(
             url=f"{redirect_uri}?{urlencode(params)}",
             status_code=status.HTTP_302_FOUND,
@@ -151,7 +166,6 @@ async def authorize_submit(
         code_challenge_method=code_challenge_method,
     )
 
-    from urllib.parse import urlencode
     params = {"code": auth_code.code}
     if state:
         params["state"] = state
@@ -159,6 +173,37 @@ async def authorize_submit(
     return RedirectResponse(
         url=f"{redirect_uri}?{urlencode(params)}",
         status_code=status.HTTP_302_FOUND,
+    )
+
+
+@router.post("/device_authorization", response_model=DeviceAuthorizationResponse)
+async def device_authorization_endpoint(
+    client_id: str = Form(...),
+    scope: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+) -> DeviceAuthorizationResponse:
+    result, error = await create_device_authorization(
+        db, client_id, scope, verification_base_uri=DEVICE_VERIFICATION_BASE_URI
+    )
+
+    if error == "invalid_client":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid client_id",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    assert result is not None
+
+    user_code_for_url = result.user_code.replace("-", "")
+
+    return DeviceAuthorizationResponse(
+        device_code=result.device_code,
+        user_code=result.user_code,
+        verification_uri=DEVICE_VERIFICATION_BASE_URI,
+        verification_uri_complete=f"{DEVICE_VERIFICATION_BASE_URI}?user_code={user_code_for_url}",
+        expires_in=settings.device_authorization_expire_seconds,
+        interval=result.interval,
     )
 
 
@@ -171,6 +216,7 @@ async def token_endpoint(
     client_secret: str = Form(...),
     refresh_token: str | None = Form(None),
     code_verifier: str | None = Form(None),
+    device_code: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     if grant_type == "authorization_code":
@@ -233,11 +279,155 @@ async def token_endpoint(
             token_family_id=result.token_family_id,
         )
 
+    elif grant_type == "urn:ietf:params:oauth:grant-type:device_code":
+        if not device_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing device_code for device_code grant",
+            )
+
+        result: DeviceCodeTokenResult = await exchange_device_code(
+            db, client_id, client_secret, device_code
+        )
+
+        if not result.success:
+            if result.error == "authorization_pending":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "authorization_pending",
+                        "error_description": "User has not yet authorized the device",
+                    },
+                )
+            elif result.error == "slow_down":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "slow_down",
+                        "error_description": result.error_description,
+                    },
+                )
+            elif result.error == "access_denied":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "access_denied",
+                        "error_description": "User denied the authorization request",
+                    },
+                )
+            elif result.error == "expired_token":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "expired_token",
+                        "error_description": "The device_code has expired",
+                    },
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": result.error or "invalid_grant",
+                        "error_description": result.error_description or "Device code exchange failed",
+                    },
+                )
+
+        return TokenResponse(
+            access_token=result.access_token,
+            refresh_token=result.refresh_token,
+            expires_in=result.expires_in,
+            scope=result.scope,
+            token_family_id=result.token_family_id,
+        )
+
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported grant type. Only 'authorization_code' and 'refresh_token' are supported.",
+            detail=(
+                "Unsupported grant type. "
+                "Only 'authorization_code', 'refresh_token', and "
+                "'urn:ietf:params:oauth:grant-type:device_code' are supported."
+            ),
         )
+
+
+@router.get("/api/device_authorizations", response_model=list[DeviceAuthorizationResponseSchema])
+async def list_device_authorizations_endpoint(
+    status: str | None = None,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[DeviceAuthorizationResponseSchema]:
+    items = await list_device_authorizations(db, status_filter=status)
+    result = []
+    for auth in items:
+        details = await get_device_authorization_with_details(db, auth)
+        result.append(DeviceAuthorizationResponseSchema(**details))
+    return result
+
+
+@router.post("/api/device_authorizations/{auth_id}/approve")
+async def approve_device_authorization_endpoint(
+    auth_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    success, error = await approve_device_authorization(db, auth_id, current_user.id)
+    if not success:
+        error_map = {
+            "not_found": ("Device authorization not found", status.HTTP_404_NOT_FOUND),
+            "not_pending": ("Device authorization is not in pending state", status.HTTP_400_BAD_REQUEST),
+            "expired": ("Device authorization has expired", status.HTTP_400_BAD_REQUEST),
+        }
+        message, http_status = error_map.get(error, ("Failed to approve", status.HTTP_400_BAD_REQUEST))
+        raise HTTPException(status_code=http_status, detail=message)
+    return {"status": "approved", "id": auth_id}
+
+
+@router.post("/api/device_authorizations/{auth_id}/deny")
+async def deny_device_authorization_endpoint(
+    auth_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    success, error = await deny_device_authorization(db, auth_id, current_user.id)
+    if not success:
+        error_map = {
+            "not_found": ("Device authorization not found", status.HTTP_404_NOT_FOUND),
+            "not_pending": ("Device authorization is not in pending state", status.HTTP_400_BAD_REQUEST),
+        }
+        message, http_status = error_map.get(error, ("Failed to deny", status.HTTP_400_BAD_REQUEST))
+        raise HTTPException(status_code=http_status, detail=message)
+    return {"status": "denied", "id": auth_id}
+
+
+@router.post("/api/public/device_verify")
+async def public_device_verify(
+    request: UserCodeVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    auth = await get_device_authorization_by_user_code(db, request.user_code)
+    if auth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User code not found or invalid",
+        )
+
+    if auth.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User code has already been {auth.status}",
+        )
+
+    now = datetime.now(timezone.utc)
+    expires_aware = auth.expires_at.replace(tzinfo=timezone.utc) if auth.expires_at.tzinfo is None else auth.expires_at
+    if expires_aware < now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User code has expired",
+        )
+
+    details = await get_device_authorization_with_details(db, auth)
+    return details
 
 
 @router.post("/introspect", response_model=IntrospectResponse)

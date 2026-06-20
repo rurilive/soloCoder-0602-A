@@ -27,6 +27,14 @@ export default defineConfig({
         target: 'http://localhost:1111',
         changeOrigin: true,
       },
+      '/device_authorization': {
+        target: 'http://localhost:1111',
+        changeOrigin: true,
+      },
+      '/.well-known': {
+        target: 'http://localhost:1111',
+        changeOrigin: true,
+      },
     },
   },
 })

@@ -29,6 +29,17 @@ from .oauth2_service import (
     ExchangeCodeResult,
     RefreshTokenResult,
 )
+from .device_authorization_service import (
+    create_device_authorization,
+    get_device_authorization_by_code,
+    get_device_authorization_by_user_code,
+    list_device_authorizations,
+    get_device_authorization_with_details,
+    approve_device_authorization,
+    deny_device_authorization,
+    exchange_device_code,
+    DeviceCodeTokenResult,
+)
 
 __all__ = [
     "create_client",
@@ -56,4 +67,13 @@ __all__ = [
     "introspect_token",
     "ExchangeCodeResult",
     "RefreshTokenResult",
+    "create_device_authorization",
+    "get_device_authorization_by_code",
+    "get_device_authorization_by_user_code",
+    "list_device_authorizations",
+    "get_device_authorization_with_details",
+    "approve_device_authorization",
+    "deny_device_authorization",
+    "exchange_device_code",
+    "DeviceCodeTokenResult",
 ]

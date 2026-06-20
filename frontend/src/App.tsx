@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Clients from './pages/Clients'
 import TestOAuth from './pages/TestOAuth'
 import Register from './pages/Register'
+import DeviceVerification from './pages/DeviceVerification'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -18,6 +19,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/device" element={<DeviceVerification />} />
         <Route path="/" element={
           <PrivateRoute>
             <Layout />

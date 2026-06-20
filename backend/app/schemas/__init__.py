@@ -11,6 +11,12 @@ from .oauth2 import (
     TokenRequest,
     TokenResponse,
     IntrospectResponse,
+    DeviceAuthorizationRequest,
+    DeviceAuthorizationResponse,
+    DeviceCodeTokenRequest,
+    DeviceAuthorizationResponseSchema,
+    UserCodeVerifyRequest,
+    DeviceAuthorizationActionRequest,
 )
 
 __all__ = [
@@ -27,4 +33,10 @@ __all__ = [
     "TokenRequest",
     "TokenResponse",
     "IntrospectResponse",
+    "DeviceAuthorizationRequest",
+    "DeviceAuthorizationResponse",
+    "DeviceCodeTokenRequest",
+    "DeviceAuthorizationResponseSchema",
+    "UserCodeVerifyRequest",
+    "DeviceAuthorizationActionRequest",
 ]
