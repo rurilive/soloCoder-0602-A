@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
   STEP: 'oauth_test_step',
   LOG: 'oauth_test_log',
   CLIENT_SECRET_PREFIX: 'client_secret_',
+  OAUTH_STATE: 'oauth_test_state',
 }
 
 const getClientSecret = (clientId: string): string | null => {
@@ -150,6 +151,20 @@ export default function TestOAuth() {
     const state = params.get('state')
 
     if (code) {
+      const storedState = sessionStorage.getItem(STORAGE_KEYS.OAUTH_STATE)
+      sessionStorage.removeItem(STORAGE_KEYS.OAUTH_STATE)
+
+      if (!state || state !== storedState) {
+        setError('OAuth state 校验失败，可能存在 CSRF 攻击，请重新开始 OAuth2.0 流程')
+        addLog('❌ OAuth state 校验失败，可能存在 CSRF 攻击')
+        addLog(`   收到的 state: ${state || '缺失'}`)
+        addLog(`   期望的 state: ${storedState || '缺失'}`)
+        window.history.replaceState({}, document.title, '/test')
+        return
+      }
+
+      addLog(`✅ OAuth state 校验通过`)
+
       const clientWithSecret = getSelectedClientWithSecret()
       if (clientWithSecret && clientWithSecret.client_secret) {
         addLog(`📥 收到授权码: ${code.substring(0, 20)}...`)
@@ -209,10 +224,12 @@ export default function TestOAuth() {
     addLog('🚀 开始 OAuth2.0 授权码流程')
     addLog(`📍 使用客户端: ${client.name} (${client.client_id})`)
 
-    const state = Math.random().toString(36).substring(2)
+    const state = crypto.getRandomValues(new Uint8Array(32)).reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '')
+    sessionStorage.setItem(STORAGE_KEYS.OAUTH_STATE, state)
     const authUrl = `/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read write&state=${state}`
 
     addLog(`🔗 重定向到授权服务器: ${authUrl}`)
+    addLog(`🔐 生成并存储 state 参数 (CSRF 防护)`)
     window.location.href = authUrl
   }
 

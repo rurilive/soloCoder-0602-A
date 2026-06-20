@@ -228,8 +228,8 @@
 
             {% if user %}
             <div class="welcome-box">
-                <div class="welcome-text">👋 欢迎回来，{{ user.username }}!</div>
-                <div class="user-info">邮箱: {{ user.email }} | 用户ID: {{ user.sub }}</div>
+                <div class="welcome-text">👋 欢迎回来，{{ user.user.username }}!</div>
+                <div class="user-info">邮箱: {{ user.user.email }} | 用户ID: {{ user.user.sub }}</div>
             </div>
 
             <div class="btn-group">
