@@ -466,15 +466,10 @@ async def revoke_endpoint(
         db, token, client_id, token_type_hint
     )
 
-    if not result.success:
-        error_map = {
-            "invalid_token": "Invalid token",
-            "invalid_client": "Token does not belong to this client",
-            "unsupported_token_type": "Unsupported token type",
-        }
+    if not result.success and result.error == "unsupported_token_type":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_map.get(result.error, "Token revocation failed"),
+            detail="Unsupported token type",
         )
 
     return RevokeResponse(revoked=True, revoked_count=result.revoked_count)

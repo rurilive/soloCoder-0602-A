@@ -124,7 +124,21 @@ async def main():
         await log(f"未撤销前内省 refresh: {r.status_code} - {r.text[:200]}")
         assert r.json()["active"] == True, "Refresh token 应该 active"
 
-        await log("\n=== Step 5: 测试错误客户端不能撤销 ===")
+        r = await client.post(
+            f"{BACKEND}/introspect",
+            data={"token": access_token, "token_type_hint": "access_token"},
+        )
+        await log(f"introspect token_type_hint=access_token (应active): {r.status_code} - {r.text[:200]}")
+        assert r.json()["active"] == True, "access_token hint 应该能正常映射到 access"
+
+        r = await client.post(
+            f"{BACKEND}/introspect",
+            data={"token": refresh_token, "token_type_hint": "refresh_token"},
+        )
+        await log(f"introspect token_type_hint=refresh_token (应active): {r.status_code} - {r.text[:200]}")
+        assert r.json()["active"] == True, "refresh_token hint 应该能正常映射到 refresh"
+
+        await log("\n=== Step 5: 测试 RFC7009 合规性 ===")
         r = await client.post(
             f"{BACKEND}/revoke",
             data={
@@ -134,8 +148,33 @@ async def main():
                 "client_secret": "wrong_secret",
             },
         )
-        await log(f"错误客户端撤销 access: {r.status_code} - {r.text[:200]}")
-        assert r.status_code == 401, f"错误客户端应该 401: {r.text}"
+        await log(f"错误客户端凭证撤销: {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 401, f"错误客户端凭证应该 401: {r.text}"
+
+        r = await client.post(
+            f"{BACKEND}/revoke",
+            data={
+                "token": "invalid.token.here",
+                "token_type_hint": "access_token",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+        )
+        await log(f"撤销无效 token (应200): {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 200, f"撤销无效 token 应返回 200 (RFC7009): {r.text}"
+        assert r.json()["revoked_count"] == 0, "revoked_count 应为 0"
+
+        r = await client.post(
+            f"{BACKEND}/revoke",
+            data={
+                "token": access_token,
+                "token_type_hint": "wrong_type",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+        )
+        await log(f"unsupported_token_type (应400): {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 400, f"unsupported_token_type 应返回 400: {r.text}"
 
         await log("\n=== Step 6: 撤销 Access Token 并验证 ===")
         r = await client.post(
@@ -164,6 +203,19 @@ async def main():
         )
         await log(f"撤销后内省 access (应false): {r.status_code} - {r.text[:200]}")
         assert r.json()["active"] == False, "撤销后应该 inactive"
+
+        r = await client.post(
+            f"{BACKEND}/revoke",
+            data={
+                "token": access_token,
+                "token_type_hint": "access_token",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+        )
+        await log(f"重复撤销已撤销的 access (应200, count=0): {r.status_code} - {r.text[:200]}")
+        assert r.status_code == 200, f"重复撤销应返回 200 (RFC7009): {r.text}"
+        assert r.json()["revoked_count"] == 0, "重复撤销 revoked_count 应为 0"
 
         await log("\n✅ Access Token 撤销功能验证通过!")
 

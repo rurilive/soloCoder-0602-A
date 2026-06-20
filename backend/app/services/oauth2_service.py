@@ -310,7 +310,8 @@ async def introspect_token(
         return {"active": False}
 
     token_type = payload.get("type")
-    if token_type_hint and token_type != token_type_hint:
+    normalized_hint = _normalize_token_type_hint(token_type_hint)
+    if normalized_hint and token_type != normalized_hint:
         return {"active": False}
 
     if token_type == "refresh":
@@ -360,13 +361,13 @@ async def revoke_token(
     client_id: str,
     token_type_hint: str | None = None,
 ) -> RevokeTokenResult:
-    payload = await verify_token(token, expected_type=None, db=None)
+    payload = await verify_token(token, expected_type=None, db=db)
     if payload is None:
-        return RevokeTokenResult(success=False, error="invalid_token")
+        return RevokeTokenResult(success=True, revoked_count=0)
 
     token_client_id = payload.get("client_id")
     if token_client_id and token_client_id != client_id:
-        return RevokeTokenResult(success=False, error="invalid_client")
+        return RevokeTokenResult(success=True, revoked_count=0)
 
     token_type = payload.get("type")
     normalized_hint = _normalize_token_type_hint(token_type_hint)
