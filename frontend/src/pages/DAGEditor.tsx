@@ -290,7 +290,59 @@ const DAGEditor = () => {
 
   const handleSave = async () => {
     try {
-      for (const node of nodes) {
+      let updatedNodes = [...nodes]
+      let updatedEdges = [...edges]
+      const idMapping: Record<string, string> = {}
+
+      const tempNodes = updatedNodes.filter((n) => {
+        const nodeId = n.id
+        return nodeId.startsWith('temp_') || (n.data.nodeId ?? 0) <= 0
+      })
+
+      for (const tempNode of tempNodes) {
+        const res = await nodeApi.create(dagId, {
+          name: tempNode.data.label,
+          script_type: tempNode.data.scriptType,
+          script_content: defaultScriptTemplates[tempNode.data.scriptType as 'shell' | 'python'],
+          position_x: tempNode.position.x,
+          position_y: tempNode.position.y
+        })
+
+        const newId = res.data.id.toString()
+        idMapping[tempNode.id] = newId
+
+        updatedNodes = updatedNodes.map((n) => {
+          if (n.id === tempNode.id) {
+            return {
+              ...n,
+              id: newId,
+              data: {
+                ...n.data,
+                nodeId: res.data.id
+              }
+            }
+          }
+          return n
+        })
+
+        updatedEdges = updatedEdges.map((e) => {
+          let newEdge = { ...e }
+          if (e.source === tempNode.id) {
+            newEdge.source = newId
+          }
+          if (e.target === tempNode.id) {
+            newEdge.target = newId
+          }
+          return newEdge
+        })
+      }
+
+      if (tempNodes.length > 0) {
+        setNodes(updatedNodes)
+        setEdges(updatedEdges)
+      }
+
+      for (const node of updatedNodes) {
         const nodeId = Number(node.id)
         if (!isNaN(nodeId) && nodeId > 0) {
           await nodeApi.update(dagId, nodeId, {
@@ -300,7 +352,7 @@ const DAGEditor = () => {
         }
       }
 
-      const edgeData = edges
+      const edgeData = updatedEdges
         .filter((e) => {
           const sourceId = Number(e.source)
           const targetId = Number(e.target)
