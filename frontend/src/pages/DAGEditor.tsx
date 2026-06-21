@@ -299,6 +299,26 @@ const DAGEditor = () => {
       let updatedEdges = [...edges]
       const idMapping: Record<string, string> = {}
 
+      if (selectedNode) {
+        const values = form.getFieldsValue()
+        if (values.name !== undefined) {
+          updatedNodes = updatedNodes.map((n) => {
+            if (n.id === selectedNode.id) {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  label: values.name,
+                  scriptType: values.script_type || n.data.scriptType,
+                  scriptContent: values.script_content ?? n.data.scriptContent
+                }
+              }
+            }
+            return n
+          })
+        }
+      }
+
       const tempNodes = updatedNodes.filter((n) => {
         const nodeId = n.id
         return nodeId.startsWith('temp_') || (n.data.nodeId ?? 0) <= 0
@@ -353,7 +373,12 @@ const DAGEditor = () => {
       for (const node of updatedNodes) {
         const nodeId = Number(node.id)
         if (!isNaN(nodeId) && nodeId > 0) {
+          const scriptType = node.data.scriptType as 'shell' | 'python'
+          const scriptContent = node.data.scriptContent || defaultScriptTemplates[scriptType]
           await nodeApi.update(dagId, nodeId, {
+            name: node.data.label,
+            script_type: scriptType,
+            script_content: scriptContent,
             position_x: node.position.x,
             position_y: node.position.y
           })
