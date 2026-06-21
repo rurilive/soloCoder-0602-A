@@ -79,6 +79,7 @@ const DAGEditor = () => {
         data: {
           label: node.name,
           scriptType: node.script_type,
+          scriptContent: node.script_content,
           nodeId: node.id
         }
       }))
@@ -164,6 +165,7 @@ const DAGEditor = () => {
     })
 
     const newNodeId = `temp_${Date.now()}`
+    const scriptType = type as 'shell' | 'python'
     const newNode: Node = {
       id: newNodeId,
       type: 'custom',
@@ -171,6 +173,7 @@ const DAGEditor = () => {
       data: {
         label: `新建${type.toUpperCase()}节点`,
         scriptType: type,
+        scriptContent: defaultScriptTemplates[scriptType],
         nodeId: 0
       }
     }
@@ -255,6 +258,7 @@ const DAGEditor = () => {
                 ...n.data,
                 label: values.name,
                 scriptType: values.script_type,
+                scriptContent: values.script_content,
                 nodeId: res.data.id
               }
             }
@@ -275,7 +279,8 @@ const DAGEditor = () => {
             data: {
               ...n.data,
               label: values.name,
-              scriptType: values.script_type
+              scriptType: values.script_type,
+              scriptContent: values.script_content
             }
           }
         }
@@ -300,10 +305,13 @@ const DAGEditor = () => {
       })
 
       for (const tempNode of tempNodes) {
+        const scriptType = tempNode.data.scriptType as 'shell' | 'python'
+        const scriptContent = tempNode.data.scriptContent || defaultScriptTemplates[scriptType]
+
         const res = await nodeApi.create(dagId, {
           name: tempNode.data.label,
-          script_type: tempNode.data.scriptType,
-          script_content: defaultScriptTemplates[tempNode.data.scriptType as 'shell' | 'python'],
+          script_type: scriptType,
+          script_content: scriptContent,
           position_x: tempNode.position.x,
           position_y: tempNode.position.y
         })

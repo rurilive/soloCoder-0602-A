@@ -14,7 +14,7 @@ from ..models.node_execution import NodeExecution
 from ..schemas.dag import DAGCreate, DAGUpdate, DAG as DAGSchema
 from ..services.auth import get_current_user
 from ..services.scheduler import scheduler_service
-from ..services.executor import topological_sort
+from ..services.executor import topological_sort, run_execution
 
 router = APIRouter(prefix="/api/dags", tags=["dags"])
 
@@ -187,92 +187,4 @@ def trigger_dag(
 
 
 def execute_dag_background(execution_id: int):
-    from ..services.executor import execute_script, send_log
-    from ..routers.executions import manager
-    from ..schemas.execution import LogEntry
-    import asyncio
-
-    db = SessionLocal()
-    try:
-        task_execution = db.query(TaskExecution).filter(
-            TaskExecution.id == execution_id
-        ).first()
-        if not task_execution:
-            return
-
-        dag = db.query(DAG).filter(DAG.id == task_execution.dag_id).first()
-        if not dag:
-            return
-
-        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
-        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
-        execution_order = topological_sort(nodes, edges)
-
-        task_execution.status = "running"
-        db.commit()
-
-        node_map = {node.id: node for node in nodes}
-        node_executions = {
-            ne.node_id: ne
-            for ne in db.query(NodeExecution).filter(
-                NodeExecution.task_execution_id == execution_id
-            ).all()
-        }
-
-        dag_failed = False
-        for node_id in execution_order:
-            if dag_failed:
-                break
-
-            node = node_map[node_id]
-            ne = node_executions[node_id]
-
-            ne.status = "running"
-            ne.started_at = datetime.now(timezone.utc)
-            db.commit()
-
-            log_output = ""
-            try:
-                returncode, stdout, stderr = execute_script(
-                    node.script_type,
-                    node.script_content
-                )
-                log_output = f"=== STDOUT ===\n{stdout}\n"
-                if stderr:
-                    log_output += f"=== STDERR ===\n{stderr}\n"
-                log_output += f"=== Exit code: {returncode} ==="
-
-                if returncode == 0:
-                    ne.status = "success"
-                else:
-                    ne.status = "failed"
-                    dag_failed = True
-            except Exception as e:
-                ne.status = "failed"
-                log_output = f"Execution error: {str(e)}"
-                dag_failed = True
-
-            ne.log = log_output
-            ne.finished_at = datetime.now(timezone.utc)
-            db.commit()
-
-        if dag_failed:
-            remaining_start = execution_order.index(node_id) + 1
-            for remaining_node_id in execution_order[remaining_start:]:
-                remaining_ne = node_executions[remaining_node_id]
-                remaining_ne.status = "skipped"
-                remaining_ne.log = "Skipped due to upstream failure"
-                db.commit()
-
-        task_execution.status = "success" if not dag_failed else "failed"
-        task_execution.finished_at = datetime.now(timezone.utc)
-        db.commit()
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error in background execution {execution_id}: {e}", exc_info=True)
-        if 'task_execution' in locals():
-            task_execution.status = "failed"
-            task_execution.finished_at = datetime.now(timezone.utc)
-            db.commit()
-    finally:
-        db.close()
+    run_execution(execution_id)

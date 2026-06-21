@@ -87,44 +87,33 @@ async def send_log(execution_id: int, node_id: int, node_name: str, message: str
     await manager.broadcast(execution_id, log_entry)
 
 
-def execute_dag(dag_id: int) -> TaskExecution:
+def run_execution(execution_id: int):
     db = SessionLocal()
     try:
-        dag = db.query(DAG).filter(DAG.id == dag_id).first()
+        task_execution = db.query(TaskExecution).filter(
+            TaskExecution.id == execution_id
+        ).first()
+        if not task_execution:
+            return
+
+        dag = db.query(DAG).filter(DAG.id == task_execution.dag_id).first()
         if not dag:
-            raise ValueError(f"DAG {dag_id} not found")
+            return
 
-        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag_id).all()
-        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag_id).all()
-
-        if not nodes:
-            raise ValueError(f"DAG {dag_id} has no nodes")
-
+        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
+        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
         execution_order = topological_sort(nodes, edges)
 
-        task_execution = TaskExecution(
-            dag_id=dag_id,
-            status="running",
-            started_at=datetime.now(timezone.utc)
-        )
-        db.add(task_execution)
-        db.flush()
+        task_execution.status = "running"
+        db.commit()
 
         node_map = {node.id: node for node in nodes}
-
-        node_executions = {}
-        for node_id in execution_order:
-            node = node_map[node_id]
-            ne = NodeExecution(
-                task_execution_id=task_execution.id,
-                node_id=node_id,
-                status="pending"
-            )
-            db.add(ne)
-            db.flush()
-            node_executions[node_id] = ne
-
-        db.commit()
+        node_executions = {
+            ne.node_id: ne
+            for ne in db.query(NodeExecution).filter(
+                NodeExecution.task_execution_id == execution_id
+            ).all()
+        }
 
         dag_failed = False
         for node_id in execution_order:
@@ -165,7 +154,8 @@ def execute_dag(dag_id: int) -> TaskExecution:
             db.commit()
 
             if dag_failed:
-                for remaining_node_id in execution_order[execution_order.index(node_id) + 1:]:
+                remaining_start = execution_order.index(node_id) + 1
+                for remaining_node_id in execution_order[remaining_start:]:
                     remaining_ne = node_executions[remaining_node_id]
                     remaining_ne.status = "skipped"
                     remaining_ne.log = "Skipped due to upstream failure"
@@ -175,8 +165,58 @@ def execute_dag(dag_id: int) -> TaskExecution:
         task_execution.status = "success" if not dag_failed else "failed"
         task_execution.finished_at = datetime.now(timezone.utc)
         db.commit()
-        db.refresh(task_execution)
+    except Exception as e:
+        logger.error(f"Error in run_execution {execution_id}: {e}", exc_info=True)
+        if 'task_execution' in locals():
+            task_execution.status = "failed"
+            task_execution.finished_at = datetime.now(timezone.utc)
+            db.commit()
+    finally:
+        db.close()
 
+
+def execute_dag(dag_id: int) -> TaskExecution:
+    db = SessionLocal()
+    try:
+        dag = db.query(DAG).filter(DAG.id == dag_id).first()
+        if not dag:
+            raise ValueError(f"DAG {dag_id} not found")
+
+        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag_id).all()
+        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag_id).all()
+
+        if not nodes:
+            raise ValueError(f"DAG {dag_id} has no nodes")
+
+        execution_order = topological_sort(nodes, edges)
+
+        task_execution = TaskExecution(
+            dag_id=dag_id,
+            status="pending",
+            started_at=datetime.now(timezone.utc)
+        )
+        db.add(task_execution)
+        db.flush()
+
+        for node_id in execution_order:
+            ne = NodeExecution(
+                task_execution_id=task_execution.id,
+                node_id=node_id,
+                status="pending"
+            )
+            db.add(ne)
+
+        db.commit()
+        db.refresh(task_execution)
+        execution_id = task_execution.id
+        db.close()
+
+        run_execution(execution_id)
+
+        db = SessionLocal()
+        task_execution = db.query(TaskExecution).filter(
+            TaskExecution.id == execution_id
+        ).first()
         return task_execution
     except Exception as e:
         logger.error(f"Error in execute_dag {dag_id}: {e}", exc_info=True)
