@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ReactFlow,
@@ -24,6 +24,7 @@ import {
   Input,
   InputNumber,
   Select,
+  Switch,
   Card,
   message,
   Popconfirm,
@@ -39,7 +40,10 @@ import {
   DeleteOutlined,
   ArrowLeftOutlined,
   CodeOutlined,
-  SettingOutlined
+  SettingOutlined,
+  FilterOutlined,
+  ExperimentOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons'
 import CustomNode from '../components/CustomNode'
 import { dagApi, nodeApi, edgeApi } from '../api'
@@ -70,6 +74,40 @@ const DAGEditor = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const reactFlowInstance = useReactFlow()
 
+  const findVariableReferences = useCallback((scriptContent: string): string[] => {
+    const pattern = /\{\{\s*([\w.]+)\s*\}\}/g
+    const matches: string[] = []
+    let match
+    while ((match = pattern.exec(scriptContent)) !== null) {
+      matches.push(match[1])
+    }
+    return [...new Set(matches)]
+  }, [])
+
+  const selectedNodeVarRefs = useMemo(() => {
+    if (!selectedNode || !selectedNode.data.scriptContent) {
+      return []
+    }
+    return findVariableReferences(selectedNode.data.scriptContent || '')
+  }, [selectedNode, findVariableReferences])
+
+  const upstreamNodesWithVars = useMemo(() => {
+    if (!dag || !selectedNode) return []
+
+    const selectedNodeId = Number(selectedNode.id)
+    const upstreamNodeIds = new Set<number>()
+
+    edges.forEach(edge => {
+      if (Number(edge.target) === selectedNodeId) {
+        upstreamNodeIds.add(Number(edge.source))
+      }
+    })
+
+    return dag.nodes.filter(node =>
+      upstreamNodeIds.has(node.id) && node.expose_output_vars
+    )
+  }, [dag, selectedNode, edges])
+
   const loadDAG = useCallback(async () => {
     try {
       setLoading(true)
@@ -92,6 +130,8 @@ const DAGEditor = () => {
           label: node.name,
           scriptType: node.script_type,
           scriptContent: node.script_content,
+          conditionExpression: node.condition_expression,
+          exposeOutputVars: node.expose_output_vars,
           nodeId: node.id
         }
       }))
@@ -128,7 +168,9 @@ const DAGEditor = () => {
         form.setFieldsValue({
           name: node.name,
           script_type: node.script_type,
-          script_content: node.script_content
+          script_content: node.script_content,
+          condition_expression: node.condition_expression,
+          expose_output_vars: node.expose_output_vars
         })
       }
     }
@@ -186,6 +228,8 @@ const DAGEditor = () => {
         label: `新建${type.toUpperCase()}节点`,
         scriptType: type,
         scriptContent: defaultScriptTemplates[scriptType],
+        conditionExpression: '',
+        exposeOutputVars: false,
         nodeId: 0
       }
     }
@@ -203,6 +247,8 @@ const DAGEditor = () => {
         name: `新建${scriptType.toUpperCase()}节点`,
         script_type: scriptType,
         script_content: defaultScriptTemplates[scriptType],
+        condition_expression: '',
+        expose_output_vars: false,
         position_x: position.x,
         position_y: position.y
       })
@@ -257,6 +303,8 @@ const DAGEditor = () => {
           name: values.name,
           script_type: values.script_type,
           script_content: values.script_content,
+          condition_expression: values.condition_expression || '',
+          expose_output_vars: values.expose_output_vars || false,
           position_x: position.x,
           position_y: position.y
         })
@@ -271,6 +319,8 @@ const DAGEditor = () => {
                 label: values.name,
                 scriptType: values.script_type,
                 scriptContent: values.script_content,
+                conditionExpression: values.condition_expression || '',
+                exposeOutputVars: values.expose_output_vars || false,
                 nodeId: res.data.id
               }
             }
@@ -292,7 +342,9 @@ const DAGEditor = () => {
               ...n.data,
               label: values.name,
               scriptType: values.script_type,
-              scriptContent: values.script_content
+              scriptContent: values.script_content,
+              conditionExpression: values.condition_expression || '',
+              exposeOutputVars: values.expose_output_vars || false
             }
           }
         }
@@ -344,6 +396,8 @@ const DAGEditor = () => {
           name: tempNode.data.label,
           script_type: scriptType,
           script_content: scriptContent,
+          condition_expression: tempNode.data.conditionExpression || '',
+          expose_output_vars: tempNode.data.exposeOutputVars || false,
           position_x: tempNode.position.x,
           position_y: tempNode.position.y
         })
@@ -391,6 +445,8 @@ const DAGEditor = () => {
             name: node.data.label,
             script_type: scriptType,
             script_content: scriptContent,
+            condition_expression: node.data.conditionExpression || '',
+            expose_output_vars: node.data.exposeOutputVars || false,
             position_x: node.position.x,
             position_y: node.position.y
           })
@@ -548,13 +604,81 @@ const DAGEditor = () => {
                     <Select.Option value="python">Python</Select.Option>
                   </Select>
                 </Form.Item>
-                <Form.Item name="script_content" label="脚本内容" rules={[{ required: true }]}>
+                <Divider style={{ margin: '12px 0' }} />
+                <Form.Item
+                  name="condition_expression"
+                  label={
+                    <span>
+                      <FilterOutlined style={{ marginRight: 4 }} />
+                      条件表达式
+                      <Tooltip title="满足条件才执行节点，否则跳过。支持变量引用，如：上游节点名.output_var == 'value'">
+                        <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                      </Tooltip>
+                    </span>
+                  }
+                >
                   <Input.TextArea
-                    rows={12}
-                    font-family="'Fira Code', monospace"
-                    placeholder="输入脚本内容..."
+                    rows={3}
+                    placeholder="例如: node_1.result == 'success'"
                   />
                 </Form.Item>
+                <Form.Item
+                  name="expose_output_vars"
+                  label={
+                    <span>
+                      <ExperimentOutlined style={{ marginRight: 4 }} />
+                      暴露输出变量
+                      <Tooltip title="开启后，脚本输出中 ::DAG_VAR::key=value 格式的内容会被解析为变量，供下游节点引用">
+                        <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                      </Tooltip>
+                    </span>
+                  }
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
+                </Form.Item>
+                <Divider style={{ margin: '12px 0' }} />
+                <Form.Item name="script_content" label="脚本内容" rules={[{ required: true }]}>
+                  <Input.TextArea
+                    rows={10}
+                    font-family="'Fira Code', monospace"
+                    placeholder="输入脚本内容...&#10;&#10;变量引用格式: {{节点名.变量名}}&#10;例如: echo {{上游节点.output_key}}"
+                  />
+                </Form.Item>
+
+                {selectedNodeVarRefs.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: 8, background: '#f6ffed', borderRadius: 4, border: '1px solid #b7eb8f' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#389e0d', marginBottom: 4 }}>
+                      📥 引用的变量 ({selectedNodeVarRefs.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {selectedNodeVarRefs.map((ref, idx) => (
+                        <Tag key={idx} color="green" style={{ fontSize: 11, margin: 0 }}>
+                          {ref}
+                        </Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {upstreamNodesWithVars.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: 8, background: '#e6f7ff', borderRadius: 4, border: '1px solid #91d5ff' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#096dd9', marginBottom: 4 }}>
+                      📤 上游可用变量源
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {upstreamNodesWithVars.map(node => (
+                        <div key={node.id} style={{ fontSize: 11, color: '#0050b3' }}>
+                          • {node.name}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 10, color: '#8c8c8c' }}>
+                      提示: 使用 {'{{节点名.变量名}}'} 引用变量
+                    </div>
+                  </div>
+                )}
+
                 <Form.Item>
                   <Button type="primary" htmlType="submit" block>
                     保存节点

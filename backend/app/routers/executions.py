@@ -146,6 +146,8 @@ def get_execution_logs(
             "node_id": ne.node_id,
             "node_name": ne.node.name,
             "status": ne.status,
+            "skip_reason": ne.skip_reason or "",
+            "output_vars": ne.output_vars or {},
             "started_at": ne.started_at,
             "finished_at": ne.finished_at,
             "log": ne.log

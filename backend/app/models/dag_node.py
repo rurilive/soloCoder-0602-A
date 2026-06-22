@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Float, Boolean, JSON
 from sqlalchemy.orm import relationship
 
 from ..database import Base
@@ -14,6 +14,8 @@ class DAGNode(Base):
     name = Column(String, nullable=False)
     script_type = Column(String, nullable=False, default="shell")
     script_content = Column(Text, default="")
+    condition_expression = Column(String, default="")
+    expose_output_vars = Column(Boolean, default=False)
     position_x = Column(Float, default=0.0)
     position_y = Column(Float, default=0.0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

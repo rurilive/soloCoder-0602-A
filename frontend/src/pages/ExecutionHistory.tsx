@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Table, Tag, Space, Card, Row, Col, Typography, Empty, BackTop, message } from 'antd'
+import { Button, Table, Tag, Space, Card, Row, Col, Typography, Empty, BackTop, message, Tooltip } from 'antd'
 import { ArrowLeftOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { executionApi, dagApi } from '../api'
@@ -286,6 +286,8 @@ const ExecutionHistory = () => {
               node_id: logMsg.node_id,
               node_name: logMsg.node_name,
               status: 'pending',
+              skip_reason: '',
+              output_vars: {},
               started_at: null,
               finished_at: null,
               log: logMsg.message
@@ -299,9 +301,10 @@ const ExecutionHistory = () => {
 
       if (msg.type === 'status_update') {
         const statusMsg = msg as WsStatusUpdateMessage
-        if (statusMsg.node_id !== null && statusMsg.node_id !== undefined) {
+        const nodeId = statusMsg.node_id
+        if (nodeId !== null && nodeId !== undefined) {
           setLogs(prevLogs => {
-            const existingIdx = prevLogs.findIndex(l => l.node_id === statusMsg.node_id)
+            const existingIdx = prevLogs.findIndex(l => l.node_id === nodeId)
             if (existingIdx >= 0) {
               const updated = [...prevLogs]
               updated[existingIdx] = {
@@ -315,9 +318,11 @@ const ExecutionHistory = () => {
               return updated
             } else {
               const newItem: NodeLog = {
-                node_id: statusMsg.node_id,
-                node_name: statusMsg.node_name || `节点#${statusMsg.node_id}`,
+                node_id: nodeId,
+                node_name: statusMsg.node_name || `节点#${nodeId}`,
                 status: statusMsg.status,
+                skip_reason: '',
+                output_vars: {},
                 started_at: statusMsg.started_at,
                 finished_at: statusMsg.finished_at,
                 log: ''
@@ -602,6 +607,41 @@ const ExecutionHistory = () => {
                         </Space>
                       }
                     >
+                      {log.status === 'skipped' && log.skip_reason && (
+                        <div style={{
+                          padding: '8px 12px',
+                          marginBottom: 8,
+                          background: '#fff7e6',
+                          border: '1px solid #ffd591',
+                          borderRadius: 4,
+                          fontSize: 12,
+                          color: '#d46b08'
+                        }}>
+                          <strong>⏭ 跳过原因:</strong> {log.skip_reason}
+                        </div>
+                      )}
+
+                      {log.output_vars && Object.keys(log.output_vars).length > 0 && (
+                        <div style={{
+                          padding: '8px 12px',
+                          marginBottom: 8,
+                          background: '#e6f7ff',
+                          border: '1px solid #91d5ff',
+                          borderRadius: 4
+                        }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#096dd9', marginBottom: 4 }}>
+                            📤 输出变量 ({Object.keys(log.output_vars).length})
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {Object.entries(log.output_vars).map(([key, value]) => (
+                              <Tag key={key} color="blue" style={{ margin: 0, fontSize: 11 }}>
+                                {key} = {String(value)}
+                              </Tag>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="log-panel">
                         {log.log || '(无日志输出)'}
                       </div>

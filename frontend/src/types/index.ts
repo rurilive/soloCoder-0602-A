@@ -16,6 +16,8 @@ export interface DAGNode {
   name: string
   script_type: 'shell' | 'python'
   script_content: string
+  condition_expression: string
+  expose_output_vars: boolean
   position_x: number
   position_y: number
   created_at: string
@@ -49,6 +51,8 @@ export interface NodeExecution {
   task_execution_id: number
   node_id: number
   status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cancelled'
+  skip_reason: string
+  output_vars: Record<string, string>
   started_at: string | null
   finished_at: string | null
   log: string
@@ -104,6 +108,8 @@ export interface NodeLog {
   node_id: number
   node_name: string
   status: string
+  skip_reason: string
+  output_vars: Record<string, string>
   started_at: string | null
   finished_at: string | null
   log: string

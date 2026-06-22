@@ -6,6 +6,8 @@ from typing import Optional, List
 class NodeExecutionBase(BaseModel):
     node_id: int
     status: str = "pending"
+    skip_reason: str = ""
+    output_vars: dict = {}
     log: str = ""
 
 

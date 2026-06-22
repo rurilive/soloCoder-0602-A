@@ -7,6 +7,8 @@ class DAGNodeBase(BaseModel):
     name: str
     script_type: str = "shell"
     script_content: str = ""
+    condition_expression: str = ""
+    expose_output_vars: bool = False
     position_x: float = 0.0
     position_y: float = 0.0
 
@@ -19,6 +21,8 @@ class DAGNodeUpdate(BaseModel):
     name: Optional[str] = None
     script_type: Optional[str] = None
     script_content: Optional[str] = None
+    condition_expression: Optional[str] = None
+    expose_output_vars: Optional[bool] = None
     position_x: Optional[float] = None
     position_y: Optional[float] = None
 

@@ -19,6 +19,12 @@ from ..models.task_execution import TaskExecution
 from ..models.node_execution import NodeExecution
 from ..schemas.execution import LogEntry, StatusUpdate, ExecutionComplete
 from ..routers.executions import manager
+from .variable_utils import (
+    evaluate_condition,
+    parse_output_vars,
+    inject_variables,
+    collect_variables_from_executions
+)
 
 logger = logging.getLogger(__name__)
 
@@ -249,20 +255,26 @@ def _execute_single_node(
     script_type: str,
     script_content: str,
     cancel_event: threading.Event,
-    db_session_factory
+    db_session_factory,
+    variables: Optional[Dict[str, Any]] = None,
+    expose_output_vars: bool = False
 ) -> dict:
+    variables = variables or {}
     result = {
         'node_id': node_id,
         'status': 'failed',
         'log_output': '',
         'started_at': None,
-        'finished_at': None
+        'finished_at': None,
+        'output_vars': {}
     }
 
     if cancel_event.is_set():
         result['status'] = 'cancelled'
         result['log_output'] = 'Cancelled before start'
         return result
+
+    injected_script = inject_variables(script_content, variables)
 
     db = db_session_factory()
     try:
@@ -277,6 +289,7 @@ def _execute_single_node(
         ne.started_at = datetime.now(timezone.utc)
         ne.finished_at = None
         ne.log = ""
+        ne.output_vars = {}
         db.commit()
         result['started_at'] = ne.started_at
 
@@ -285,14 +298,32 @@ def _execute_single_node(
         )
         _broadcast_log_sync(execution_id, node_id, node_name, f"▶ 开始执行节点: {node_name}", "info")
 
+        if variables:
+            _broadcast_log_sync(
+                execution_id, node_id, node_name,
+                f"📥 注入变量: {len(variables)} 个上游节点变量可用",
+                "info"
+            )
+
         log_output = ""
         try:
             returncode, stdout, stderr = _script_executor.execute_script(
                 script_type,
-                script_content,
+                injected_script,
                 node_id,
                 cancel_event
             )
+
+            output_vars = {}
+            if expose_output_vars:
+                output_vars = parse_output_vars(stdout)
+                if output_vars:
+                    _broadcast_log_sync(
+                        execution_id, node_id, node_name,
+                        f"📤 暴露变量: {', '.join(output_vars.keys())}",
+                        "success"
+                    )
+                result['output_vars'] = output_vars
 
             if cancel_event.is_set():
                 ne.status = "cancelled"
@@ -315,6 +346,7 @@ def _execute_single_node(
                 if returncode == 0:
                     ne.status = "success"
                     result['status'] = 'success'
+                    ne.output_vars = output_vars
                     _broadcast_log_sync(execution_id, node_id, node_name, f"✅ 节点执行成功: {node_name}", "success")
                 else:
                     ne.status = "failed"
@@ -391,7 +423,9 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                 'id': node.id,
                 'name': node.name,
                 'script_type': node.script_type,
-                'script_content': node.script_content
+                'script_content': node.script_content,
+                'condition_expression': node.condition_expression,
+                'expose_output_vars': node.expose_output_vars
             }
             for node in nodes
         }
@@ -421,6 +455,7 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
 
         dag_failed = False
         cancel_event = threading.Event()
+        available_vars: Dict[str, Any] = {}
 
         for level_idx, level_nodes in enumerate(levels):
             if dag_failed:
@@ -433,6 +468,7 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                     ).first()
                     if remaining_ne and remaining_ne.status in ('pending', 'running'):
                         remaining_ne.status = "skipped"
+                        remaining_ne.skip_reason = "Skipped due to upstream failure"
                         remaining_ne.log = "Skipped due to upstream failure"
                         remaining_ne.started_at = None
                         remaining_ne.finished_at = None
@@ -443,7 +479,49 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                         )
                 continue
 
-            nodes_to_run = [nid for nid in level_nodes if nid not in skip_node_ids]
+            nodes_to_run = []
+            condition_skipped_nodes = []
+
+            for node_id in level_nodes:
+                if node_id in skip_node_ids:
+                    continue
+
+                node_info = node_data_map.get(node_id, {})
+                condition_expr = node_info.get('condition_expression', '')
+
+                if condition_expr and condition_expr.strip():
+                    try:
+                        condition_met = evaluate_condition(condition_expr, available_vars)
+                        if not condition_met:
+                            skip_reason = f"条件不满足: {condition_expr}"
+                            condition_skipped_nodes.append((node_id, skip_reason))
+                            continue
+                    except ValueError as e:
+                        skip_reason = f"条件表达式错误: {str(e)}"
+                        condition_skipped_nodes.append((node_id, skip_reason))
+                        continue
+
+                nodes_to_run.append(node_id)
+
+            for node_id, skip_reason in condition_skipped_nodes:
+                ne = node_executions.get(node_id)
+                if ne:
+                    ne.status = "skipped"
+                    ne.skip_reason = skip_reason
+                    ne.log = f"跳过原因: {skip_reason}"
+                    ne.started_at = None
+                    ne.finished_at = None
+                    db.commit()
+                _broadcast_status_sync(
+                    execution_id, "skipped", node_id,
+                    node_data_map[node_id]['name']
+                )
+                _broadcast_log_sync(
+                    execution_id, node_id,
+                    node_data_map[node_id]['name'],
+                    f"⏭ 节点已跳过: {skip_reason}",
+                    "info"
+                )
 
             if not nodes_to_run:
                 continue
@@ -460,7 +538,9 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                     nd['script_type'],
                     nd['script_content'],
                     cancel_event,
-                    SessionLocal
+                    SessionLocal,
+                    variables=available_vars,
+                    expose_output_vars=nd.get('expose_output_vars', False)
                 )
 
             with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
@@ -473,6 +553,14 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                     node_id = future_to_node[future]
                     try:
                         result = future.result()
+                        if result['status'] == 'success':
+                            node_info = node_data_map.get(node_id, {})
+                            if node_info.get('expose_output_vars') and result.get('output_vars'):
+                                node_name = node_info.get('name', f'node_{node_id}')
+                                import re
+                                safe_name = re.sub(r'[^\w]', '_', node_name)
+                                available_vars[safe_name] = result['output_vars']
+                                available_vars[f'node_{node_id}'] = result['output_vars']
                         if result['status'] == 'failed':
                             level_failed = True
                             dag_failed = True
@@ -500,6 +588,7 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                     ).first()
                     if ne and ne.status == 'running':
                         ne.status = 'cancelled'
+                        ne.skip_reason = 'Cancelled due to sibling node failure'
                         ne.log = 'Cancelled due to sibling node failure'
                         ne.finished_at = datetime.now(timezone.utc)
                         db.commit()
@@ -520,6 +609,7 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                         ).first()
                         if remaining_ne and remaining_ne.status in ('pending', 'running'):
                             remaining_ne.status = "skipped"
+                            remaining_ne.skip_reason = "Skipped due to upstream failure"
                             remaining_ne.log = "Skipped due to upstream failure"
                             remaining_ne.started_at = None
                             remaining_ne.finished_at = None
