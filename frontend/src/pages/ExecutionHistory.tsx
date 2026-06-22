@@ -23,6 +23,7 @@ const ExecutionHistory = () => {
   const [retrying, setRetrying] = useState(false)
 
   const wsRef = useRef<WebSocket | null>(null)
+  const wsExecutionIdRef = useRef<number | null>(null)
   const logsRef = useRef<NodeLog[]>([])
   const selectedExecutionRef = useRef<TaskExecution | null>(null)
   const executionsRef = useRef<TaskExecution[]>([])
@@ -107,6 +108,7 @@ const ExecutionHistory = () => {
       }
       wsRef.current = null
     }
+    wsExecutionIdRef.current = null
     setWsConnected(false)
   }, [])
 
@@ -216,6 +218,9 @@ const ExecutionHistory = () => {
   }
 
   const openWebSocket = useCallback((executionId: number) => {
+    if (wsExecutionIdRef.current === executionId && wsRef.current) {
+      return
+    }
     closeWebSocket()
 
     try {
@@ -236,9 +241,11 @@ const ExecutionHistory = () => {
       ws.onclose = () => {
         setWsConnected(false)
         wsRef.current = null
+        wsExecutionIdRef.current = null
       }
 
       wsRef.current = ws
+      wsExecutionIdRef.current = executionId
     } catch (err) {
       console.error('Failed to create WebSocket:', err)
     }
@@ -262,16 +269,7 @@ const ExecutionHistory = () => {
     } else {
       closeWebSocket()
     }
-  }, [selectedExecution?.id])
-
-  useEffect(() => {
-    if (!selectedExecution) return
-    if (selectedExecution.status === 'running') {
-      openWebSocket(selectedExecution.id)
-    } else {
-      closeWebSocket()
-    }
-  }, [selectedExecution?.status])
+  }, [selectedExecution?.id, selectedExecution?.status])
 
   const handleRetry = async () => {
     if (!selectedExecution) return
@@ -287,7 +285,7 @@ const ExecutionHistory = () => {
       updateExecutionInList(selectedExecution.id, {
         status: 'running',
         retry_count: res.data.retry_count,
-        started_at: dayjs().toISOString(),
+        started_at: res.data.started_at || dayjs().toISOString(),
         finished_at: null
       })
       loadLogs(selectedExecution.id)

@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,9 +17,13 @@ logging.basicConfig(
 
 Base.metadata.create_all(bind=engine)
 
+MAIN_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global MAIN_EVENT_LOOP
+    MAIN_EVENT_LOOP = asyncio.get_running_loop()
     scheduler_service.start()
     yield
     scheduler_service.shutdown()
@@ -62,3 +67,4 @@ def start_server():
 
 if __name__ == "__main__":
     start_server()
+

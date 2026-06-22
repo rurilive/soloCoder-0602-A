@@ -10,6 +10,7 @@ from typing import List, Dict, Set
 import logging
 
 from ..database import SessionLocal
+from sqlalchemy.orm import Session
 from ..models.dag import DAG
 from ..models.dag_node import DAGNode
 from ..models.dag_edge import DAGEdge
@@ -20,21 +21,20 @@ from ..routers.executions import manager
 
 logger = logging.getLogger(__name__)
 
-_event_loop: asyncio.AbstractEventLoop | None = None
-_loop_thread: threading.Thread | None = None
 
-
-def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
-    global _event_loop, _loop_thread
-    if _event_loop is None:
-        _event_loop = asyncio.new_event_loop()
-        _loop_thread = threading.Thread(target=_event_loop.run_forever, daemon=True)
-        _loop_thread.start()
-    return _event_loop
+def _get_main_loop():
+    from ..main import MAIN_EVENT_LOOP
+    if MAIN_EVENT_LOOP is None:
+        raise RuntimeError("Main event loop is not initialized yet")
+    return MAIN_EVENT_LOOP
 
 
 def _run_async(coro):
-    loop = _get_or_create_event_loop()
+    try:
+        loop = _get_main_loop()
+    except RuntimeError:
+        logger.warning("Main event loop not ready, skipping async broadcast")
+        return
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     try:
         return future.result(timeout=30)
@@ -314,63 +314,10 @@ def run_execution(execution_id: int):
 def retry_execution(execution_id: int) -> TaskExecution:
     db = SessionLocal()
     try:
-        task_execution = db.query(TaskExecution).filter(
-            TaskExecution.id == execution_id
-        ).first()
-        if not task_execution:
-            raise ValueError(f"Execution {execution_id} not found")
-
-        if task_execution.status == "running":
-            raise ValueError(f"Execution {execution_id} is already running")
-
-        dag = db.query(DAG).filter(DAG.id == task_execution.dag_id).first()
-        if not dag:
-            raise ValueError(f"DAG {task_execution.dag_id} not found")
-
-        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
-        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
-
-        if not nodes:
-            raise ValueError(f"DAG {dag.id} has no nodes")
-
-        execution_order = topological_sort(nodes, edges)
-
-        node_executions = {
-            ne.node_id: ne
-            for ne in db.query(NodeExecution).filter(
-                NodeExecution.task_execution_id == execution_id
-            ).all()
-        }
-
-        existing_node_ids = set(node_executions.keys())
-        for node_id in execution_order:
-            if node_id not in existing_node_ids:
-                ne = NodeExecution(
-                    task_execution_id=task_execution.id,
-                    node_id=node_id,
-                    status="pending"
-                )
-                db.add(ne)
-                node_executions[node_id] = ne
-
-        db.commit()
-
-        skip_node_ids: Set[int] = set()
-        for node_id in execution_order:
-            ne = node_executions[node_id]
-            if ne.status == "success":
-                skip_node_ids.add(node_id)
-            else:
-                ne.status = "pending"
-                ne.started_at = None
-                ne.finished_at = None
-                ne.log = ""
-
-        db.commit()
-        db.refresh(task_execution)
+        skip_node_ids = _prepare_retry_internal(db, execution_id)
         db.close()
 
-        _run_execution_internal(execution_id, is_retry=True, skip_node_ids=skip_node_ids)
+        _run_execution_internal(execution_id, is_retry=False, skip_node_ids=skip_node_ids)
 
         db = SessionLocal()
         task_execution = db.query(TaskExecution).filter(
@@ -382,6 +329,108 @@ def retry_execution(execution_id: int) -> TaskExecution:
         raise
     finally:
         db.close()
+
+
+def prepare_retry(execution_id: int, owner_id: int) -> Set[int]:
+    """同步准备重试：校验权限、重置节点、递增retry_count、设为running。
+    返回需要跳过的success节点ID集合，供后续后台执行使用。"""
+    db = SessionLocal()
+    try:
+        task_execution = db.query(TaskExecution).filter(
+            TaskExecution.id == execution_id
+        ).first()
+        if not task_execution:
+            raise ValueError(f"Execution {execution_id} not found")
+
+        dag = db.query(DAG).filter(DAG.id == task_execution.dag_id).first()
+        if not dag:
+            raise ValueError(f"DAG {task_execution.dag_id} not found")
+        if dag.owner_id != owner_id:
+            raise PermissionError(f"Not authorized to retry execution {execution_id}")
+
+        skip_node_ids = _prepare_retry_internal(db, execution_id)
+        return skip_node_ids
+    except Exception as e:
+        logger.error(f"Error in prepare_retry {execution_id}: {e}", exc_info=True)
+        raise
+    finally:
+        db.close()
+
+
+def _prepare_retry_internal(db: Session, execution_id: int) -> Set[int]:
+    """内部准备重试逻辑（已在db会话中）：重置节点、递增retry_count、设置running。
+    返回需要跳过的success节点ID集合。"""
+    from datetime import datetime, timezone as tz
+
+    task_execution = db.query(TaskExecution).filter(
+        TaskExecution.id == execution_id
+    ).first()
+    if not task_execution:
+        raise ValueError(f"Execution {execution_id} not found")
+
+    if task_execution.status == "running":
+        raise ValueError(f"Execution {execution_id} is already running")
+
+    dag = db.query(DAG).filter(DAG.id == task_execution.dag_id).first()
+    if not dag:
+        raise ValueError(f"DAG {task_execution.dag_id} not found")
+
+    nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
+    edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
+
+    if not nodes:
+        raise ValueError(f"DAG {dag.id} has no nodes")
+
+    execution_order = topological_sort(nodes, edges)
+
+    node_executions = {
+        ne.node_id: ne
+        for ne in db.query(NodeExecution).filter(
+            NodeExecution.task_execution_id == execution_id
+        ).all()
+    }
+
+    existing_node_ids = set(node_executions.keys())
+    for node_id in execution_order:
+        if node_id not in existing_node_ids:
+            ne = NodeExecution(
+                task_execution_id=task_execution.id,
+                node_id=node_id,
+                status="pending"
+            )
+            db.add(ne)
+            node_executions[node_id] = ne
+
+    db.commit()
+
+    skip_node_ids: Set[int] = set()
+    for node_id in execution_order:
+        ne = node_executions[node_id]
+        if ne.status == "success":
+            skip_node_ids.add(node_id)
+        else:
+            ne.status = "pending"
+            ne.started_at = None
+            ne.finished_at = None
+            ne.log = ""
+
+    task_execution.status = "running"
+    task_execution.retry_count = (task_execution.retry_count or 0) + 1
+    task_execution.started_at = datetime.now(tz.utc)
+    task_execution.finished_at = None
+
+    db.commit()
+    db.refresh(task_execution)
+    return skip_node_ids
+
+
+def run_retry_only(execution_id: int, skip_node_ids: Set[int]):
+    """只执行重试的运行阶段（不做准备、不递增retry_count），配合prepare_retry使用。"""
+    try:
+        _run_execution_internal(execution_id, is_retry=False, skip_node_ids=skip_node_ids)
+    except Exception as e:
+        logger.error(f"Error in run_retry_only {execution_id}: {e}", exc_info=True)
+        raise
 
 
 def execute_dag(dag_id: int) -> TaskExecution:

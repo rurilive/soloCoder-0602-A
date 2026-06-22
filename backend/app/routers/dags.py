@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone
+import concurrent.futures
 import logging
+
+_executor_pool = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="dag-worker")
+_logger = logging.getLogger(__name__)
 
 from ..database import get_db, SessionLocal
 from ..models.user import User

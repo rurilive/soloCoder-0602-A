@@ -171,15 +171,23 @@ def retry_execution_endpoint(
     if execution.status == "running":
         raise HTTPException(status_code=400, detail="Execution is already running")
 
-    def run_retry_in_background(eid: int):
+    try:
+        from ..services.executor import prepare_retry
+        skip_node_ids = prepare_retry(execution_id, current_user.id)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    def run_retry_in_background(eid: int, skip_ids: set):
         try:
-            from ..services.executor import retry_execution
-            retry_execution(eid)
+            from ..services.executor import run_retry_only
+            run_retry_only(eid, skip_ids)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Retry failed for execution {eid}: {e}", exc_info=True)
 
-    background_tasks.add_task(run_retry_in_background, execution_id)
+    background_tasks.add_task(run_retry_in_background, execution_id, skip_node_ids)
 
     db.refresh(execution)
     return execution
