@@ -311,6 +311,8 @@ const ExecutionHistory = () => {
                 ...updated[existingIdx],
                 status: statusMsg.status,
                 node_name: statusMsg.node_name || updated[existingIdx].node_name,
+                skip_reason: statusMsg.skip_reason ?? updated[existingIdx].skip_reason,
+                output_vars: statusMsg.output_vars ?? updated[existingIdx].output_vars,
                 started_at: statusMsg.started_at ?? updated[existingIdx].started_at,
                 finished_at: statusMsg.finished_at ?? updated[existingIdx].finished_at
               }
@@ -321,8 +323,8 @@ const ExecutionHistory = () => {
                 node_id: nodeId,
                 node_name: statusMsg.node_name || `节点#${nodeId}`,
                 status: statusMsg.status,
-                skip_reason: '',
-                output_vars: {},
+                skip_reason: statusMsg.skip_reason || '',
+                output_vars: statusMsg.output_vars || {},
                 started_at: statusMsg.started_at,
                 finished_at: statusMsg.finished_at,
                 log: ''
@@ -342,10 +344,6 @@ const ExecutionHistory = () => {
             status: completeMsg.status as any,
             finished_at: completeMsg.finished_at
           })
-          setTimeout(() => {
-            loadExecutions()
-            loadLogs(completeMsg.execution_id)
-          }, 300)
         }
         closeWebSocket()
       }

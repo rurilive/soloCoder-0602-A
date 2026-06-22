@@ -374,7 +374,9 @@ const DAGEditor = () => {
                   ...n.data,
                   label: values.name,
                   scriptType: values.script_type || n.data.scriptType,
-                  scriptContent: values.script_content ?? n.data.scriptContent
+                  scriptContent: values.script_content ?? n.data.scriptContent,
+                  conditionExpression: values.condition_expression ?? n.data.conditionExpression,
+                  exposeOutputVars: values.expose_output_vars ?? n.data.exposeOutputVars
                 }
               }
             }

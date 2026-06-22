@@ -63,6 +63,8 @@ class ConnectionManager:
             "node_id": update.node_id,
             "node_name": update.node_name,
             "status": update.status,
+            "skip_reason": update.skip_reason,
+            "output_vars": update.output_vars,
             "started_at": update.started_at.isoformat() if update.started_at else None,
             "finished_at": update.finished_at.isoformat() if update.finished_at else None
         }

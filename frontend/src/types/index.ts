@@ -91,6 +91,8 @@ export type WsStatusUpdateMessage = {
   node_id: number | null
   node_name: string | null
   status: string
+  skip_reason: string
+  output_vars: Record<string, string>
   started_at: string | null
   finished_at: string | null
 }

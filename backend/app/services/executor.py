@@ -199,12 +199,16 @@ async def send_status_update(
     node_id: int | None = None,
     node_name: str | None = None,
     started_at: datetime | None = None,
-    finished_at: datetime | None = None
+    finished_at: datetime | None = None,
+    skip_reason: str = "",
+    output_vars: dict = {}
 ):
     update = StatusUpdate(
         node_id=node_id,
         node_name=node_name,
         status=status,
+        skip_reason=skip_reason,
+        output_vars=output_vars,
         started_at=started_at,
         finished_at=finished_at
     )
@@ -233,10 +237,12 @@ def _broadcast_status_sync(
     node_id: int | None = None,
     node_name: str | None = None,
     started_at=None,
-    finished_at=None
+    finished_at=None,
+    skip_reason: str = "",
+    output_vars: dict = {}
 ):
     try:
-        _run_async(send_status_update(execution_id, status, node_id, node_name, started_at, finished_at))
+        _run_async(send_status_update(execution_id, status, node_id, node_name, started_at, finished_at, skip_reason, output_vars))
     except Exception as e:
         logger.warning(f"Failed to broadcast status: {e}")
 
@@ -370,7 +376,8 @@ def _execute_single_node(
         db.commit()
 
         _broadcast_status_sync(
-            execution_id, ne.status, node_id, node_name, ne.started_at, ne.finished_at
+            execution_id, ne.status, node_id, node_name, ne.started_at, ne.finished_at,
+            output_vars=ne.output_vars or {}
         )
 
         return result
@@ -475,7 +482,8 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                         db.commit()
                         _broadcast_status_sync(
                             execution_id, "skipped", remaining_node_id,
-                            node_data_map[remaining_node_id]['name']
+                            node_data_map[remaining_node_id]['name'],
+                            skip_reason="Skipped due to upstream failure"
                         )
                 continue
 
@@ -514,7 +522,8 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                     db.commit()
                 _broadcast_status_sync(
                     execution_id, "skipped", node_id,
-                    node_data_map[node_id]['name']
+                    node_data_map[node_id]['name'],
+                    skip_reason=skip_reason
                 )
                 _broadcast_log_sync(
                     execution_id, node_id,
@@ -595,7 +604,8 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                         _broadcast_status_sync(
                             execution_id, 'cancelled', node_id,
                             node_data_map[node_id]['name'],
-                            ne.started_at, ne.finished_at
+                            ne.started_at, ne.finished_at,
+                            skip_reason='Cancelled due to sibling node failure'
                         )
 
                 remaining_levels_start = level_idx + 1
@@ -616,7 +626,8 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                             db.commit()
                             _broadcast_status_sync(
                                 execution_id, "skipped", remaining_node_id,
-                                node_data_map[remaining_node_id]['name']
+                                node_data_map[remaining_node_id]['name'],
+                                skip_reason="Skipped due to upstream failure"
                             )
                 break
 

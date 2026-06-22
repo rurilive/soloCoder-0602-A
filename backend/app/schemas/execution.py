@@ -55,6 +55,8 @@ class StatusUpdate(BaseModel):
     node_id: Optional[int] = None
     node_name: Optional[str] = None
     status: str
+    skip_reason: str = ""
+    output_vars: dict = {}
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
