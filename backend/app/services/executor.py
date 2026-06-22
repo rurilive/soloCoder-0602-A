@@ -294,10 +294,13 @@ def _execute_single_node(
                 cancel_event
             )
 
-            if cancel_event.is_set() and returncode == -1:
+            if cancel_event.is_set():
                 ne.status = "cancelled"
                 result['status'] = 'cancelled'
-                log_output = "Execution cancelled"
+                log_output = f"=== STDOUT ===\n{stdout}\n"
+                if stderr:
+                    log_output += f"=== STDERR ===\n{stderr}\n"
+                log_output += f"=== Exit code: {returncode} ===\n=== Execution cancelled ==="
                 _broadcast_log_sync(execution_id, node_id, node_name, f"⏹ 节点执行已取消: {node_name}", "info")
             else:
                 log_output = f"=== STDOUT ===\n{stdout}\n"

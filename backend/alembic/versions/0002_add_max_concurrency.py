@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -18,9 +19,18 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns(table_name)]
+    return column_name in columns
+
+
 def upgrade() -> None:
-    op.add_column('dags', sa.Column('max_concurrency', sa.Integer(), default=0, nullable=True))
+    if not _column_exists('dags', 'max_concurrency'):
+        op.add_column('dags', sa.Column('max_concurrency', sa.Integer(), default=0, nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column('dags', 'max_concurrency')
+    if _column_exists('dags', 'max_concurrency'):
+        op.drop_column('dags', 'max_concurrency')
