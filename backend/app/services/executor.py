@@ -386,7 +386,6 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
             finished_at=None
         )
 
-        node_map = {node.id: node for node in nodes}
         node_data_map: Dict[int, Dict] = {
             node.id: {
                 'id': node.id,
@@ -408,7 +407,7 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                 ne = node_executions[node_id]
                 _broadcast_status_sync(
                     execution_id, ne.status, node_id,
-                    node_map[node_id].name if node_id in node_map else None,
+                    node_data_map[node_id]['name'] if node_id in node_data_map else None,
                     ne.started_at, ne.finished_at
                 )
                 if ne.log:
@@ -416,7 +415,7 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                         if line.strip():
                             _broadcast_log_sync(
                                 execution_id, node_id,
-                                node_map[node_id].name if node_id in node_map else str(node_id),
+                                node_data_map[node_id]['name'] if node_id in node_data_map else str(node_id),
                                 line
                             )
 
