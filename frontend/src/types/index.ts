@@ -36,6 +36,7 @@ export interface DAG {
   description: string
   cron_expression: string
   is_active: boolean
+  max_concurrency: number
   owner_id: number
   created_at: string
   updated_at: string
@@ -47,7 +48,7 @@ export interface NodeExecution {
   id: number
   task_execution_id: number
   node_id: number
-  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cancelled'
   started_at: string | null
   finished_at: string | null
   log: string

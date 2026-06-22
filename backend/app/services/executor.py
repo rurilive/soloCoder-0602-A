@@ -6,7 +6,8 @@ import asyncio
 import threading
 from datetime import datetime, timezone
 from collections import deque, defaultdict
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
 from ..database import SessionLocal
@@ -73,30 +74,106 @@ def topological_sort(nodes: List[DAGNode], edges: List[DAGEdge]) -> List[int]:
     return result
 
 
-def execute_script(script_type: str, script_content: str) -> tuple[int, str, str]:
-    with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{script_type}', delete=False) as f:
-        f.write(script_content)
-        temp_file = f.name
+def topological_levels(nodes: List[DAGNode], edges: List[DAGEdge]) -> List[List[int]]:
+    graph = defaultdict(list)
+    in_degree = defaultdict(int)
 
-    try:
-        if script_type == "python":
-            cmd = [sys.executable, temp_file]
-        else:
-            cmd = ["bash", temp_file]
+    node_ids = {node.id for node in nodes}
+    for edge in edges:
+        if edge.source_node_id in node_ids and edge.target_node_id in node_ids:
+            graph[edge.source_node_id].append(edge.target_node_id)
+            in_degree[edge.target_node_id] += 1
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600,
-            env=os.environ.copy()
-        )
-        return result.returncode, result.stdout, result.stderr
-    finally:
+    for node in nodes:
+        if node.id not in in_degree:
+            in_degree[node.id] = 0
+
+    levels = []
+    current_level = [node_id for node_id, degree in in_degree.items() if degree == 0]
+
+    while current_level:
+        levels.append(current_level)
+        next_level = []
+        for node_id in current_level:
+            for neighbor in graph[node_id]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    next_level.append(neighbor)
+        current_level = next_level
+
+    total_nodes = sum(len(level) for level in levels)
+    if total_nodes != len(nodes):
+        raise ValueError("Cycle detected in DAG")
+
+    return levels
+
+
+class CancellableScriptExecutor:
+    def __init__(self):
+        self._processes: Dict[int, subprocess.Popen] = {}
+        self._lock = threading.Lock()
+
+    def execute_script(
+        self,
+        script_type: str,
+        script_content: str,
+        node_id: int,
+        cancel_event: threading.Event
+    ) -> tuple[int, str, str]:
+        with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{script_type}', delete=False) as f:
+            f.write(script_content)
+            temp_file = f.name
+
+        proc = None
         try:
-            os.unlink(temp_file)
-        except:
-            pass
+            if script_type == "python":
+                cmd = [sys.executable, temp_file]
+            else:
+                cmd = ["bash", temp_file]
+
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=os.environ.copy()
+            )
+
+            with self._lock:
+                self._processes[node_id] = proc
+
+            try:
+                stdout, stderr = proc.communicate(timeout=3600)
+                returncode = proc.returncode
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+                raise subprocess.TimeoutExpired(cmd, 3600)
+
+            if cancel_event.is_set():
+                return -1, stdout, stderr
+
+            return returncode, stdout, stderr
+        finally:
+            with self._lock:
+                self._processes.pop(node_id, None)
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+
+    def cancel_node(self, node_id: int):
+        with self._lock:
+            proc = self._processes.get(node_id)
+        if proc and proc.poll() is None:
+            try:
+                proc.kill()
+                logger.info(f"Cancelled process for node {node_id}")
+            except Exception as e:
+                logger.warning(f"Failed to kill process for node {node_id}: {e}")
+
+
+_script_executor = CancellableScriptExecutor()
 
 
 async def send_log(execution_id: int, node_id: int, node_name: str, message: str, level: str = "info"):
@@ -165,6 +242,111 @@ def _broadcast_complete_sync(execution_id: int, status: str, finished_at: dateti
         logger.warning(f"Failed to broadcast complete: {e}")
 
 
+def _execute_single_node(
+    execution_id: int,
+    node_id: int,
+    node: DAGNode,
+    node_execution: NodeExecution,
+    cancel_event: threading.Event,
+    db_session_factory
+) -> dict:
+    result = {
+        'node_id': node_id,
+        'status': 'failed',
+        'log_output': '',
+        'started_at': None,
+        'finished_at': None
+    }
+
+    if cancel_event.is_set():
+        result['status'] = 'cancelled'
+        result['log_output'] = 'Cancelled before start'
+        return result
+
+    db = db_session_factory()
+    try:
+        ne = db.query(NodeExecution).filter(
+            NodeExecution.task_execution_id == execution_id,
+            NodeExecution.node_id == node_id
+        ).first()
+        if not ne:
+            return result
+
+        ne.status = "running"
+        ne.started_at = datetime.now(timezone.utc)
+        ne.finished_at = None
+        ne.log = ""
+        db.commit()
+        result['started_at'] = ne.started_at
+
+        _broadcast_status_sync(
+            execution_id, "running", node_id, node.name, ne.started_at
+        )
+        _broadcast_log_sync(execution_id, node_id, node.name, f"▶ 开始执行节点: {node.name}", "info")
+
+        log_output = ""
+        try:
+            returncode, stdout, stderr = _script_executor.execute_script(
+                node.script_type,
+                node.script_content,
+                node_id,
+                cancel_event
+            )
+
+            if cancel_event.is_set() and returncode == -1:
+                ne.status = "cancelled"
+                result['status'] = 'cancelled'
+                log_output = "Execution cancelled"
+                _broadcast_log_sync(execution_id, node_id, node.name, f"⏹ 节点执行已取消: {node.name}", "info")
+            else:
+                log_output = f"=== STDOUT ===\n{stdout}\n"
+                if stderr:
+                    log_output += f"=== STDERR ===\n{stderr}\n"
+                log_output += f"=== Exit code: {returncode} ==="
+
+                for line in (stdout + stderr).strip().split('\n'):
+                    if line.strip():
+                        _broadcast_log_sync(execution_id, node_id, node.name, line)
+
+                if returncode == 0:
+                    ne.status = "success"
+                    result['status'] = 'success'
+                    _broadcast_log_sync(execution_id, node_id, node.name, f"✅ 节点执行成功: {node.name}", "success")
+                else:
+                    ne.status = "failed"
+                    result['status'] = 'failed'
+                    _broadcast_log_sync(execution_id, node_id, node.name, f"❌ 节点执行失败: {node.name} (退出码: {returncode})", "error")
+        except subprocess.TimeoutExpired:
+            ne.status = "failed"
+            result['status'] = 'failed'
+            log_output = "Execution timed out after 3600 seconds"
+            _broadcast_log_sync(execution_id, node_id, node.name, f"⏱ 节点执行超时: {node.name}", "error")
+        except Exception as e:
+            ne.status = "failed"
+            result['status'] = 'failed'
+            log_output = f"Execution error: {str(e)}"
+            _broadcast_log_sync(execution_id, node_id, node.name, f"⚠ 节点执行异常: {str(e)}", "error")
+
+        ne.log = log_output
+        ne.finished_at = datetime.now(timezone.utc)
+        result['finished_at'] = ne.finished_at
+        result['log_output'] = log_output
+        db.commit()
+
+        _broadcast_status_sync(
+            execution_id, ne.status, node_id, node.name, ne.started_at, ne.finished_at
+        )
+
+        return result
+    except Exception as e:
+        logger.error(f"Error executing node {node_id}: {e}", exc_info=True)
+        result['status'] = 'failed'
+        result['log_output'] = f"Internal error: {str(e)}"
+        return result
+    finally:
+        db.close()
+
+
 def _run_execution_internal(execution_id: int, init_status: bool = True, skip_node_ids: Set[int] | None = None):
     db = SessionLocal()
     skip_node_ids = skip_node_ids or set()
@@ -181,7 +363,11 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
 
         nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
         edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
-        execution_order = topological_sort(nodes, edges)
+        levels = topological_levels(nodes, edges)
+
+        max_concurrency = dag.max_concurrency or 0
+        if max_concurrency <= 0:
+            max_concurrency = len(nodes)
 
         if init_status:
             task_execution.status = "running"
@@ -222,68 +408,13 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                             )
 
         dag_failed = False
-        for node_id in execution_order:
-            node = node_map[node_id]
-            ne = node_executions[node_id]
+        cancel_event = threading.Event()
 
-            if node_id in skip_node_ids:
-                continue
-
-            ne.status = "running"
-            ne.started_at = datetime.now(timezone.utc)
-            ne.finished_at = None
-            ne.log = ""
-            db.commit()
-
-            _broadcast_status_sync(
-                execution_id, "running", node_id, node.name, ne.started_at
-            )
-            _broadcast_log_sync(execution_id, node_id, node.name, f"▶ 开始执行节点: {node.name}", "info")
-
-            log_output = ""
-            try:
-                returncode, stdout, stderr = execute_script(
-                    node.script_type,
-                    node.script_content
-                )
-                log_output = f"=== STDOUT ===\n{stdout}\n"
-                if stderr:
-                    log_output += f"=== STDERR ===\n{stderr}\n"
-                log_output += f"=== Exit code: {returncode} ==="
-
-                for line in (stdout + stderr).strip().split('\n'):
-                    if line.strip():
-                        _broadcast_log_sync(execution_id, node_id, node.name, line)
-
-                if returncode == 0:
-                    ne.status = "success"
-                    _broadcast_log_sync(execution_id, node_id, node.name, f"✅ 节点执行成功: {node.name}", "success")
-                else:
-                    ne.status = "failed"
-                    dag_failed = True
-                    _broadcast_log_sync(execution_id, node_id, node.name, f"❌ 节点执行失败: {node.name} (退出码: {returncode})", "error")
-            except subprocess.TimeoutExpired:
-                ne.status = "failed"
-                log_output = "Execution timed out after 3600 seconds"
-                dag_failed = True
-                _broadcast_log_sync(execution_id, node_id, node.name, f"⏱ 节点执行超时: {node.name}", "error")
-            except Exception as e:
-                ne.status = "failed"
-                log_output = f"Execution error: {str(e)}"
-                dag_failed = True
-                _broadcast_log_sync(execution_id, node_id, node.name, f"⚠ 节点执行异常: {str(e)}", "error")
-
-            ne.log = log_output
-            ne.finished_at = datetime.now(timezone.utc)
-            db.commit()
-
-            _broadcast_status_sync(
-                execution_id, ne.status, node_id, node.name, ne.started_at, ne.finished_at
-            )
-
+        for level_idx, level_nodes in enumerate(levels):
             if dag_failed:
-                remaining_start = execution_order.index(node_id) + 1
-                for remaining_node_id in execution_order[remaining_start:]:
+                for remaining_node_id in level_nodes:
+                    if remaining_node_id in skip_node_ids:
+                        continue
                     remaining_ne = node_executions[remaining_node_id]
                     remaining_ne.status = "skipped"
                     remaining_ne.log = "Skipped due to upstream failure"
@@ -294,8 +425,90 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                         execution_id, "skipped", remaining_node_id,
                         node_map[remaining_node_id].name if remaining_node_id in node_map else None
                     )
+                continue
+
+            nodes_to_run = [nid for nid in level_nodes if nid not in skip_node_ids]
+
+            if not nodes_to_run:
+                continue
+
+            level_failed = False
+            failed_node_id = None
+
+            def run_node(node_id):
+                return _execute_single_node(
+                    execution_id,
+                    node_id,
+                    node_map[node_id],
+                    node_executions[node_id],
+                    cancel_event,
+                    SessionLocal
+                )
+
+            with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+                future_to_node = {
+                    executor.submit(run_node, node_id): node_id
+                    for node_id in nodes_to_run
+                }
+
+                for future in as_completed(future_to_node):
+                    node_id = future_to_node[future]
+                    try:
+                        result = future.result()
+                        if result['status'] == 'failed':
+                            level_failed = True
+                            dag_failed = True
+                            failed_node_id = node_id
+                            cancel_event.set()
+                            for other_node_id in nodes_to_run:
+                                if other_node_id != node_id:
+                                    _script_executor.cancel_node(other_node_id)
+                    except Exception as e:
+                        logger.error(f"Node {node_id} execution exception: {e}", exc_info=True)
+                        level_failed = True
+                        dag_failed = True
+                        failed_node_id = node_id
+                        cancel_event.set()
+                        for other_node_id in nodes_to_run:
+                            if other_node_id != node_id:
+                                _script_executor.cancel_node(other_node_id)
+
+            if level_failed:
+                for node_id in nodes_to_run:
+                    ne = db.query(NodeExecution).filter(
+                        NodeExecution.task_execution_id == execution_id,
+                        NodeExecution.node_id == node_id
+                    ).first()
+                    if ne and ne.status == 'running':
+                        ne.status = 'cancelled'
+                        ne.log = 'Cancelled due to sibling node failure'
+                        ne.finished_at = datetime.now(timezone.utc)
+                        db.commit()
+                        _broadcast_status_sync(
+                            execution_id, 'cancelled', node_id,
+                            node_map[node_id].name if node_id in node_map else None,
+                            ne.started_at, ne.finished_at
+                        )
+
+                remaining_levels_start = level_idx + 1
+                for future_level in levels[remaining_levels_start:]:
+                    for remaining_node_id in future_level:
+                        if remaining_node_id in skip_node_ids:
+                            continue
+                        remaining_ne = node_executions[remaining_node_id]
+                        if remaining_ne.status in ('pending', 'running'):
+                            remaining_ne.status = "skipped"
+                            remaining_ne.log = "Skipped due to upstream failure"
+                            remaining_ne.started_at = None
+                            remaining_ne.finished_at = None
+                            db.commit()
+                            _broadcast_status_sync(
+                                execution_id, "skipped", remaining_node_id,
+                                node_map[remaining_node_id].name if remaining_node_id in node_map else None
+                            )
                 break
 
+        db.refresh(task_execution)
         final_status = "success" if not dag_failed else "failed"
         task_execution.status = final_status
         task_execution.finished_at = datetime.now(timezone.utc)
@@ -483,8 +696,8 @@ def execute_dag(dag_id: int) -> TaskExecution:
         if not dag:
             raise ValueError(f"DAG {dag_id} not found")
 
-        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag_id).all()
-        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag_id).all()
+        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
+        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
 
         if not nodes:
             raise ValueError(f"DAG {dag_id} has no nodes")

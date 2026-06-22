@@ -56,6 +56,7 @@ class DAGBase(BaseModel):
     description: str = ""
     cron_expression: str = "*/5 * * * *"
     is_active: bool = False
+    max_concurrency: int = 0
 
 
 class DAGCreate(DAGBase):
@@ -68,6 +69,7 @@ class DAGUpdate(BaseModel):
     description: Optional[str] = None
     cron_expression: Optional[str] = None
     is_active: Optional[bool] = None
+    max_concurrency: Optional[int] = None
 
 
 class DAG(DAGBase):

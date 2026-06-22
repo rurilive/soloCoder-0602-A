@@ -45,6 +45,7 @@ def create_dag(
         description=dag_in.description,
         cron_expression=dag_in.cron_expression,
         is_active=dag_in.is_active,
+        max_concurrency=dag_in.max_concurrency,
         owner_id=current_user.id
     )
     db.add(dag)

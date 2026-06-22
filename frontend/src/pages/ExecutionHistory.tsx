@@ -46,6 +46,7 @@ const ExecutionHistory = () => {
       case 'failed': return 'error'
       case 'running': return 'processing'
       case 'skipped': return 'warning'
+      case 'cancelled': return 'default'
       default: return 'default'
     }
   }
@@ -56,6 +57,7 @@ const ExecutionHistory = () => {
       case 'failed': return '失败'
       case 'running': return '运行中'
       case 'skipped': return '已跳过'
+      case 'cancelled': return '已取消'
       case 'pending': return '等待中'
       default: return status
     }
@@ -83,6 +85,136 @@ const ExecutionHistory = () => {
     } catch (error) {
       // silent
     }
+  }
+
+  const getTimelineData = (nodeLogs: NodeLog[]) => {
+    if (!nodeLogs || nodeLogs.length === 0) return null
+
+    const sortedLogs = [...nodeLogs].sort((a, b) => {
+      if (!a.started_at) return 1
+      if (!b.started_at) return -1
+      return new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
+    })
+
+    const times = sortedLogs.flatMap(l => [l.started_at, l.finished_at]).filter(Boolean) as string[]
+    if (times.length === 0) return null
+
+    const minTime = Math.min(...times.map(t => new Date(t).getTime()))
+    const maxTime = Math.max(
+      ...times.map(t => new Date(t).getTime()),
+      selectedExecution?.finished_at ? new Date(selectedExecution.finished_at).getTime() : Date.now()
+    )
+    const totalDuration = maxTime - minTime || 1
+
+    const timelineItems = sortedLogs.map(log => {
+      const start = log.started_at ? new Date(log.started_at).getTime() : null
+      const end = log.finished_at ? new Date(log.finished_at).getTime() : null
+      const left = start ? ((start - minTime) / totalDuration) * 100 : 0
+      const width = start && end ? ((end - start) / totalDuration) * 100 : (log.status === 'running' ? ((Date.now() - minTime) / totalDuration) * 100 - left : 5)
+
+      return {
+        ...log,
+        left: Math.max(0, Math.min(100, left)),
+        width: Math.max(2, Math.min(100 - left, width))
+      }
+    })
+
+    return {
+      minTime,
+      maxTime,
+      totalDuration,
+      items: timelineItems
+    }
+  }
+
+  const renderTimeline = () => {
+    const timelineData = getTimelineData(logs)
+    if (!timelineData || timelineData.items.length === 0) return null
+
+    const { items, minTime, maxTime } = timelineData
+
+    const timeMarkers = []
+    const markerCount = 5
+    for (let i = 0; i <= markerCount; i++) {
+      const time = minTime + (maxTime - minTime) * (i / markerCount)
+      timeMarkers.push({
+        left: (i / markerCount) * 100,
+        label: dayjs(time).format('HH:mm:ss')
+      })
+    }
+
+    return (
+      <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>执行时间轴（并行视图）</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            总耗时: {((maxTime - minTime) / 1000).toFixed(1)}s
+          </Text>
+        </div>
+        <div style={{ position: 'relative', height: `${items.length * 24 + 20}px`, marginBottom: 8 }}>
+          {timeMarkers.map((marker, idx) => (
+            <div
+              key={idx}
+              style={{
+                position: 'absolute',
+                left: `${marker.left}%`,
+                top: 0,
+                bottom: 0,
+                borderLeft: '1px dashed #e8e8e8',
+                fontSize: 10,
+                color: '#999',
+                paddingLeft: 4,
+                zIndex: 0
+              }}
+            >
+              {marker.label}
+            </div>
+          ))}
+          {items.map((item, idx) => (
+            <Tooltip
+              key={item.node_id}
+              title={`${item.node_name} - ${getStatusText(item.status)}`}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${item.left}%`,
+                  top: `${idx * 24 + 16}px`,
+                  width: `${item.width}%`,
+                  height: 18,
+                  borderRadius: 3,
+                  background: item.status === 'success' ? '#52c41a'
+                    : item.status === 'failed' ? '#ff4d4f'
+                    : item.status === 'running' ? '#1890ff'
+                    : item.status === 'cancelled' ? '#bfbfbf'
+                    : item.status === 'skipped' ? '#faad14'
+                    : '#d9d9d9',
+                  cursor: 'pointer',
+                  opacity: 0.85,
+                  transition: 'opacity 0.2s',
+                  zIndex: 1
+                }}
+                onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = '1' }}
+                onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = '0.85' }}
+              >
+                <div style={{
+                  padding: '0 6px',
+                  fontSize: 11,
+                  color: '#fff',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  lineHeight: '18px',
+                  fontWeight: 500
+                }}>
+                  {item.node_name}
+                </div>
+              </div>
+            </Tooltip>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   const loadLogs = async (executionId: number) => {
@@ -437,7 +569,15 @@ const ExecutionHistory = () => {
                 {logsLoading ? (
                   <Empty description="加载中..." />
                 ) : logs.length > 0 ? (
-                  logs.map((log, idx) => (
+                  <>
+                    {renderTimeline()}
+                    {[...logs]
+                      .sort((a, b) => {
+                        if (!a.started_at) return 1
+                        if (!b.started_at) return -1
+                        return new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
+                      })
+                      .map((log, idx) => (
                     <Card
                       key={`${log.node_id}-${idx}`}
                       size="small"
@@ -452,6 +592,11 @@ const ExecutionHistory = () => {
                             <Text type="secondary" style={{ fontSize: 12 }}>
                               {dayjs(log.started_at).format('HH:mm:ss')}
                               {log.finished_at && ` → ${dayjs(log.finished_at).format('HH:mm:ss')}`}
+                              {log.started_at && log.finished_at && (
+                                <span style={{ marginLeft: 4 }}>
+                                  ({((new Date(log.finished_at).getTime() - new Date(log.started_at).getTime()) / 1000).toFixed(1)}s)
+                                </span>
+                              )}
                             </Text>
                           )}
                         </Space>
@@ -461,7 +606,8 @@ const ExecutionHistory = () => {
                         {log.log || '(无日志输出)'}
                       </div>
                     </Card>
-                  ))
+                  ))}
+                  </>
                 ) : (
                   <Empty description={selectedExecution.status === 'running' ? '等待日志输出...' : '暂无日志'} />
                 )}

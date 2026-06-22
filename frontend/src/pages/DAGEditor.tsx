@@ -22,20 +22,24 @@ import {
   Space,
   Form,
   Input,
+  InputNumber,
   Select,
   Card,
   message,
   Popconfirm,
   Row,
   Col,
-  Tag
+  Tag,
+  Divider,
+  Tooltip
 } from 'antd'
 import {
   SaveOutlined,
   PlayCircleOutlined,
   DeleteOutlined,
   ArrowLeftOutlined,
-  CodeOutlined
+  CodeOutlined,
+  SettingOutlined
 } from '@ant-design/icons'
 import CustomNode from '../components/CustomNode'
 import { dagApi, nodeApi, edgeApi } from '../api'
@@ -55,12 +59,14 @@ const DAGEditor = () => {
   const dagId = Number(id)
   const navigate = useNavigate()
   const [form] = Form.useForm()
+  const [dagForm] = Form.useForm()
 
   const [dag, setDag] = useState<DAG | null>(null)
   const [nodes, setNodes] = useState<Node[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showDagSettings, setShowDagSettings] = useState(false)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const reactFlowInstance = useReactFlow()
 
@@ -70,6 +76,13 @@ const DAGEditor = () => {
       const res = await dagApi.get(dagId)
       const dagData = res.data
       setDag(dagData)
+
+      dagForm.setFieldsValue({
+        name: dagData.name,
+        description: dagData.description,
+        cron_expression: dagData.cron_expression,
+        max_concurrency: dagData.max_concurrency || 0
+      })
 
       const rfNodes: Node[] = dagData.nodes.map((node) => ({
         id: node.id.toString(),
@@ -403,6 +416,16 @@ const DAGEditor = () => {
     }
   }
 
+  const handleSaveDagSettings = async (values: any) => {
+    try {
+      const res = await dagApi.update(dagId, values)
+      setDag(res.data)
+      message.success('DAG 设置已保存')
+    } catch (error) {
+      message.error('保存 DAG 设置失败')
+    }
+  }
+
   const handleTrigger = async () => {
     try {
       await dagApi.trigger(dagId)
@@ -473,6 +496,32 @@ const DAGEditor = () => {
             <div style={{ marginTop: 16, fontSize: 12, color: '#999' }}>
               提示：拖拽节点到画布，或点击直接添加
             </div>
+          </div>
+
+          <div className="node-config" style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
+              <h4 style={{ margin: 0 }}>
+                <SettingOutlined style={{ marginRight: 6 }} />
+                DAG 设置
+              </h4>
+            </div>
+            <Form
+              form={dagForm}
+              layout="vertical"
+              onFinish={handleSaveDagSettings}
+            >
+              <Form.Item name="name" label="DAG 名称" rules={[{ required: true }]}>
+                <Input size="small" />
+              </Form.Item>
+              <Form.Item name="max_concurrency" label="最大并行数" tooltip="同一层级最多同时执行的节点数，0表示不限制">
+                <InputNumber min={0} size="small" style={{ width: '100%' }} placeholder="0表示不限制" />
+              </Form.Item>
+              <Form.Item>
+                <Button type="primary" htmlType="submit" size="small" block>
+                  保存设置
+                </Button>
+              </Form.Item>
+            </Form>
           </div>
 
           {selectedNode && (
