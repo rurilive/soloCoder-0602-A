@@ -613,7 +613,7 @@ const DAGEditor = () => {
                     <span>
                       <FilterOutlined style={{ marginRight: 4 }} />
                       条件表达式
-                      <Tooltip title="满足条件才执行节点，否则跳过。支持变量引用，如：上游节点名.output_var == 'value'">
+                      <Tooltip title="满足条件才执行节点，否则跳过。支持变量引用，如：上游节点名.output_var == 'value'。注意：节点名中的空格和特殊字符会被替换为下划线">
                         <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
                       </Tooltip>
                     </span>
@@ -644,7 +644,7 @@ const DAGEditor = () => {
                   <Input.TextArea
                     rows={10}
                     font-family="'Fira Code', monospace"
-                    placeholder="输入脚本内容...&#10;&#10;变量引用格式: {{节点名.变量名}}&#10;例如: echo {{上游节点.output_key}}"
+                    placeholder="输入脚本内容...&#10;&#10;变量引用格式: {{节点名.变量名}}&#10;例如: echo {{上游节点.output_key}}&#10;注意: 节点名中的空格和特殊字符会被替换为下划线"
                   />
                 </Form.Item>
 
@@ -676,7 +676,7 @@ const DAGEditor = () => {
                       ))}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 10, color: '#8c8c8c' }}>
-                      提示: 使用 {'{{节点名.变量名}}'} 引用变量
+                      提示: 使用 {'{{节点名.变量名}}'} 引用变量，节点名中的空格和特殊字符会被替换为下划线
                     </div>
                   </div>
                 )}

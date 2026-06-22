@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import re
 import tempfile
 import asyncio
 import threading
@@ -22,8 +23,7 @@ from ..routers.executions import manager
 from .variable_utils import (
     evaluate_condition,
     parse_output_vars,
-    inject_variables,
-    collect_variables_from_executions
+    inject_variables
 )
 
 logger = logging.getLogger(__name__)
@@ -566,7 +566,6 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
                             node_info = node_data_map.get(node_id, {})
                             if node_info.get('expose_output_vars') and result.get('output_vars'):
                                 node_name = node_info.get('name', f'node_{node_id}')
-                                import re
                                 safe_name = re.sub(r'[^\w]', '_', node_name)
                                 available_vars[safe_name] = result['output_vars']
                                 available_vars[f'node_{node_id}'] = result['output_vars']
