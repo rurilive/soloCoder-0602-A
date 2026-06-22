@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Table, Tag, Space, Card, Row, Col, Typography, Empty, BackTop } from 'antd'
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Button, Table, Tag, Space, Card, Row, Col, Typography, Empty, BackTop, message } from 'antd'
+import { ArrowLeftOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { executionApi, dagApi } from '../api'
-import type { TaskExecution, DAG } from '../types'
+import type { TaskExecution, DAG, NodeLog, WsMessage, WsLogMessage, WsStatusUpdateMessage, WsExecutionCompleteMessage } from '../types'
 
 const { Title, Text } = Typography
 
@@ -18,7 +18,47 @@ const ExecutionHistory = () => {
   const [selectedExecution, setSelectedExecution] = useState<TaskExecution | null>(null)
   const [loading, setLoading] = useState(false)
   const [logsLoading, setLogsLoading] = useState(false)
-  const [logs, setLogs] = useState<any[]>([])
+  const [logs, setLogs] = useState<NodeLog[]>([])
+  const [wsConnected, setWsConnected] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+
+  const wsRef = useRef<WebSocket | null>(null)
+  const logsRef = useRef<NodeLog[]>([])
+  const selectedExecutionRef = useRef<TaskExecution | null>(null)
+  const executionsRef = useRef<TaskExecution[]>([])
+
+  useEffect(() => {
+    logsRef.current = logs
+  }, [logs])
+
+  useEffect(() => {
+    selectedExecutionRef.current = selectedExecution
+  }, [selectedExecution])
+
+  useEffect(() => {
+    executionsRef.current = executions
+  }, [executions])
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'success': return 'success'
+      case 'failed': return 'error'
+      case 'running': return 'processing'
+      case 'skipped': return 'warning'
+      default: return 'default'
+    }
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'success': return '成功'
+      case 'failed': return '失败'
+      case 'running': return '运行中'
+      case 'skipped': return '已跳过'
+      case 'pending': return '等待中'
+      default: return status
+    }
+  }
 
   const loadExecutions = async () => {
     try {
@@ -49,42 +89,212 @@ const ExecutionHistory = () => {
       setLogsLoading(true)
       const res = await executionApi.getLogs(executionId)
       setLogs(res.data)
+      logsRef.current = res.data
     } catch (error) {
       setLogs([])
+      logsRef.current = []
     } finally {
       setLogsLoading(false)
     }
   }
 
-  useEffect(() => {
-    loadDag()
-    loadExecutions()
-  }, [dagId])
-
-  useEffect(() => {
-    if (selectedExecution) {
-      loadLogs(selectedExecution.id)
+  const closeWebSocket = useCallback(() => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.close()
+      } catch (_) {
+        // ignore
+      }
+      wsRef.current = null
     }
-  }, [selectedExecution])
+    setWsConnected(false)
+  }, [])
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'success': return 'success'
-      case 'failed': return 'error'
-      case 'running': return 'processing'
-      case 'skipped': return 'warning'
-      default: return 'default'
+  const updateExecutionInList = (executionId: number, patch: Partial<TaskExecution>) => {
+    setExecutions(prev => {
+      const updated = prev.map(e =>
+        e.id === executionId ? { ...e, ...patch } : e
+      )
+      executionsRef.current = updated
+      return updated
+    })
+
+    setSelectedExecution(prev => {
+      if (prev && prev.id === executionId) {
+        const updated = { ...prev, ...patch }
+        selectedExecutionRef.current = updated
+        return updated
+      }
+      return prev
+    })
+  }
+
+  const handleWsMessage = (event: MessageEvent) => {
+    try {
+      const msg: WsMessage = JSON.parse(event.data)
+      const currentExecution = selectedExecutionRef.current
+
+      if (msg.type === 'log') {
+        const logMsg = msg as WsLogMessage
+        setLogs(prevLogs => {
+          const existingIdx = prevLogs.findIndex(l => l.node_id === logMsg.node_id)
+          if (existingIdx >= 0) {
+            const updated = [...prevLogs]
+            const item = { ...updated[existingIdx] }
+            item.log = item.log
+              ? `${item.log}\n${logMsg.message}`
+              : logMsg.message
+            updated[existingIdx] = item
+            logsRef.current = updated
+            return updated
+          } else {
+            const newItem: NodeLog = {
+              node_id: logMsg.node_id,
+              node_name: logMsg.node_name,
+              status: 'pending',
+              started_at: null,
+              finished_at: null,
+              log: logMsg.message
+            }
+            const updated = [...prevLogs, newItem]
+            logsRef.current = updated
+            return updated
+          }
+        })
+      }
+
+      if (msg.type === 'status_update') {
+        const statusMsg = msg as WsStatusUpdateMessage
+        if (statusMsg.node_id !== null && statusMsg.node_id !== undefined) {
+          setLogs(prevLogs => {
+            const existingIdx = prevLogs.findIndex(l => l.node_id === statusMsg.node_id)
+            if (existingIdx >= 0) {
+              const updated = [...prevLogs]
+              updated[existingIdx] = {
+                ...updated[existingIdx],
+                status: statusMsg.status,
+                node_name: statusMsg.node_name || updated[existingIdx].node_name,
+                started_at: statusMsg.started_at ?? updated[existingIdx].started_at,
+                finished_at: statusMsg.finished_at ?? updated[existingIdx].finished_at
+              }
+              logsRef.current = updated
+              return updated
+            } else {
+              const newItem: NodeLog = {
+                node_id: statusMsg.node_id,
+                node_name: statusMsg.node_name || `节点#${statusMsg.node_id}`,
+                status: statusMsg.status,
+                started_at: statusMsg.started_at,
+                finished_at: statusMsg.finished_at,
+                log: ''
+              }
+              const updated = [...prevLogs, newItem]
+              logsRef.current = updated
+              return updated
+            }
+          })
+        }
+      }
+
+      if (msg.type === 'execution_complete') {
+        const completeMsg = msg as WsExecutionCompleteMessage
+        if (currentExecution && currentExecution.id === completeMsg.execution_id) {
+          updateExecutionInList(completeMsg.execution_id, {
+            status: completeMsg.status as any,
+            finished_at: completeMsg.finished_at
+          })
+          setTimeout(() => {
+            loadExecutions()
+            loadLogs(completeMsg.execution_id)
+          }, 300)
+        }
+        closeWebSocket()
+      }
+    } catch (err) {
+      console.error('Failed to parse WebSocket message:', err)
     }
   }
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'success': return '成功'
-      case 'failed': return '失败'
-      case 'running': return '运行中'
-      case 'skipped': return '已跳过'
-      case 'pending': return '等待中'
-      default: return status
+  const openWebSocket = useCallback((executionId: number) => {
+    closeWebSocket()
+
+    try {
+      const wsUrl = executionApi.getWsUrl(executionId)
+      const ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        setWsConnected(true)
+      }
+
+      ws.onmessage = handleWsMessage
+
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err)
+        setWsConnected(false)
+      }
+
+      ws.onclose = () => {
+        setWsConnected(false)
+        wsRef.current = null
+      }
+
+      wsRef.current = ws
+    } catch (err) {
+      console.error('Failed to create WebSocket:', err)
+    }
+  }, [closeWebSocket])
+
+  useEffect(() => {
+    loadDag()
+    loadExecutions()
+    return () => {
+      closeWebSocket()
+    }
+  }, [dagId])
+
+  useEffect(() => {
+    if (!selectedExecution) return
+
+    loadLogs(selectedExecution.id)
+
+    if (selectedExecution.status === 'running') {
+      openWebSocket(selectedExecution.id)
+    } else {
+      closeWebSocket()
+    }
+  }, [selectedExecution?.id])
+
+  useEffect(() => {
+    if (!selectedExecution) return
+    if (selectedExecution.status === 'running') {
+      openWebSocket(selectedExecution.id)
+    } else {
+      closeWebSocket()
+    }
+  }, [selectedExecution?.status])
+
+  const handleRetry = async () => {
+    if (!selectedExecution) return
+    if (selectedExecution.status === 'running') {
+      message.warning('执行正在运行中，无法重试')
+      return
+    }
+
+    try {
+      setRetrying(true)
+      const res = await executionApi.retry(selectedExecution.id)
+      message.success(`已触发重试，当前重试次数: ${res.data.retry_count}`)
+      updateExecutionInList(selectedExecution.id, {
+        status: 'running',
+        retry_count: res.data.retry_count,
+        started_at: dayjs().toISOString(),
+        finished_at: null
+      })
+      loadLogs(selectedExecution.id)
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '重试失败')
+    } finally {
+      setRetrying(false)
     }
   }
 
@@ -93,13 +303,20 @@ const ExecutionHistory = () => {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 80
+      width: 70
+    },
+    {
+      title: '重试',
+      dataIndex: 'retry_count',
+      key: 'retry_count',
+      width: 60,
+      render: (count: number) => count > 0 ? <Tag color="orange">{count}</Tag> : <Text type="secondary">-</Text>
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 90,
       render: (status: string) => (
         <Tag color={getStatusColor(status)}>
           {getStatusText(status)}
@@ -110,27 +327,27 @@ const ExecutionHistory = () => {
       title: '开始时间',
       dataIndex: 'started_at',
       key: 'started_at',
-      width: 180,
+      width: 160,
       render: (text: string | null) => text ? dayjs(text).format('YYYY-MM-DD HH:mm:ss') : '-'
     },
     {
       title: '结束时间',
       dataIndex: 'finished_at',
       key: 'finished_at',
-      width: 180,
+      width: 160,
       render: (text: string | null) => text ? dayjs(text).format('YYYY-MM-DD HH:mm:ss') : '-'
     },
     {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 180,
+      width: 160,
       render: (text: string) => dayjs(text).format('YYYY-MM-DD HH:mm:ss')
     },
     {
       title: '操作',
       key: 'actions',
-      width: 100,
+      width: 90,
       render: (_: any, record: TaskExecution) => (
         <Button
           type="link"
@@ -154,9 +371,16 @@ const ExecutionHistory = () => {
             {dag?.name} - 执行历史
           </Title>
         </Space>
-        <Button icon={<ReloadOutlined />} onClick={loadExecutions}>
-          刷新
-        </Button>
+        <Space>
+          {wsConnected && (
+            <Tag icon={<SyncOutlined spin />} color="processing">
+              实时连接
+            </Tag>
+          )}
+          <Button icon={<ReloadOutlined />} onClick={loadExecutions}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <Row gutter={16}>
@@ -184,15 +408,29 @@ const ExecutionHistory = () => {
           <Card
             title={
               selectedExecution
-                ? `执行 #${selectedExecution.id} 日志`
+                ? `执行 #${selectedExecution.id}${selectedExecution.retry_count > 0 ? ` (重试 ${selectedExecution.retry_count} 次)` : ''} 日志`
                 : '日志详情'
             }
             size="small"
             extra={
               selectedExecution && (
-                <Tag color={getStatusColor(selectedExecution.status)}>
-                  {getStatusText(selectedExecution.status)}
-                </Tag>
+                <Space>
+                  {selectedExecution.status !== 'running' && (
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<SyncOutlined spin={retrying} />}
+                      onClick={handleRetry}
+                      loading={retrying}
+                      disabled={retrying}
+                    >
+                      重新执行
+                    </Button>
+                  )}
+                  <Tag color={getStatusColor(selectedExecution.status)}>
+                    {getStatusText(selectedExecution.status)}
+                  </Tag>
+                </Space>
               )
             }
           >
@@ -203,7 +441,7 @@ const ExecutionHistory = () => {
                 ) : logs.length > 0 ? (
                   logs.map((log, idx) => (
                     <Card
-                      key={idx}
+                      key={`${log.node_id}-${idx}`}
                       size="small"
                       style={{ marginBottom: 12 }}
                       title={
@@ -227,7 +465,7 @@ const ExecutionHistory = () => {
                     </Card>
                   ))
                 ) : (
-                  <Empty description="暂无日志" />
+                  <Empty description={selectedExecution.status === 'running' ? '等待日志输出...' : '暂无日志'} />
                 )}
               </div>
             ) : (

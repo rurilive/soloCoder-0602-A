@@ -67,3 +67,19 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def decode_access_token(token: str) -> dict:
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    username: str = payload.get("sub")
+    if username is None:
+        raise JWTError("Missing sub claim")
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if user is None:
+            raise JWTError("User not found")
+        return {"user_id": user.id, "username": username}
+    finally:
+        db.close()

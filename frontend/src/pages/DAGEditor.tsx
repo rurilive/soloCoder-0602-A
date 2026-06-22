@@ -35,7 +35,6 @@ import {
   PlayCircleOutlined,
   DeleteOutlined,
   ArrowLeftOutlined,
-  TerminalOutlined,
   CodeOutlined
 } from '@ant-design/icons'
 import CustomNode from '../components/CustomNode'
@@ -459,7 +458,7 @@ const DAGEditor = () => {
               onDragStart={(e) => handleDragStart(e, 'shell')}
               onClick={() => handleAddNode('shell')}
             >
-              <TerminalOutlined style={{ marginRight: 8 }} />
+              <CodeOutlined style={{ marginRight: 8 }} />
               Shell 节点
             </div>
             <div

@@ -12,6 +12,7 @@ class TaskExecution(Base):
     id = Column(Integer, primary_key=True, index=True)
     dag_id = Column(Integer, ForeignKey("dags.id"), nullable=False)
     status = Column(String, default="pending")
+    retry_count = Column(Integer, default=0)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

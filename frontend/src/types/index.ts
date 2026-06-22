@@ -57,6 +57,7 @@ export interface TaskExecution {
   id: number
   dag_id: number
   status: 'pending' | 'running' | 'success' | 'failed'
+  retry_count: number
   started_at: string | null
   finished_at: string | null
   created_at: string
@@ -69,4 +70,40 @@ export interface LogEntry {
   message: string
   timestamp: string
   level: 'info' | 'error' | 'success'
+}
+
+export type WsLogMessage = {
+  type: 'log'
+  node_id: number
+  node_name: string
+  message: string
+  timestamp: string
+  level: 'info' | 'error' | 'success'
+}
+
+export type WsStatusUpdateMessage = {
+  type: 'status_update'
+  node_id: number | null
+  node_name: string | null
+  status: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export type WsExecutionCompleteMessage = {
+  type: 'execution_complete'
+  execution_id: number
+  status: string
+  finished_at: string
+}
+
+export type WsMessage = WsLogMessage | WsStatusUpdateMessage | WsExecutionCompleteMessage
+
+export interface NodeLog {
+  node_id: number
+  node_name: string
+  status: string
+  started_at: string | null
+  finished_at: string | null
+  log: string
 }

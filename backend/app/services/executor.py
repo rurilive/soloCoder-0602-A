@@ -2,6 +2,8 @@ import subprocess
 import sys
 import os
 import tempfile
+import asyncio
+import threading
 from datetime import datetime, timezone
 from collections import deque, defaultdict
 from typing import List, Dict, Set
@@ -13,10 +15,31 @@ from ..models.dag_node import DAGNode
 from ..models.dag_edge import DAGEdge
 from ..models.task_execution import TaskExecution
 from ..models.node_execution import NodeExecution
-from ..schemas.execution import LogEntry
+from ..schemas.execution import LogEntry, StatusUpdate, ExecutionComplete
 from ..routers.executions import manager
 
 logger = logging.getLogger(__name__)
+
+_event_loop: asyncio.AbstractEventLoop | None = None
+_loop_thread: threading.Thread | None = None
+
+
+def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
+    global _event_loop, _loop_thread
+    if _event_loop is None:
+        _event_loop = asyncio.new_event_loop()
+        _loop_thread = threading.Thread(target=_event_loop.run_forever, daemon=True)
+        _loop_thread.start()
+    return _event_loop
+
+
+def _run_async(coro):
+    loop = _get_or_create_event_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    try:
+        return future.result(timeout=30)
+    except Exception as e:
+        logger.warning(f"_run_async failed: {e}")
 
 
 def topological_sort(nodes: List[DAGNode], edges: List[DAGEdge]) -> List[int]:
@@ -84,11 +107,67 @@ async def send_log(execution_id: int, node_id: int, node_name: str, message: str
         timestamp=datetime.now(timezone.utc),
         level=level
     )
-    await manager.broadcast(execution_id, log_entry)
+    await manager.broadcast_log(execution_id, log_entry)
 
 
-def run_execution(execution_id: int):
+async def send_status_update(
+    execution_id: int,
+    status: str,
+    node_id: int | None = None,
+    node_name: str | None = None,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None
+):
+    update = StatusUpdate(
+        node_id=node_id,
+        node_name=node_name,
+        status=status,
+        started_at=started_at,
+        finished_at=finished_at
+    )
+    await manager.broadcast_status(execution_id, update)
+
+
+async def send_execution_complete(execution_id: int, status: str, finished_at: datetime):
+    complete = ExecutionComplete(
+        execution_id=execution_id,
+        status=status,
+        finished_at=finished_at
+    )
+    await manager.broadcast_event(execution_id, complete)
+
+
+def _broadcast_log_sync(execution_id: int, node_id: int, node_name: str, message: str, level: str = "info"):
+    try:
+        _run_async(send_log(execution_id, node_id, node_name, message, level))
+    except Exception as e:
+        logger.warning(f"Failed to broadcast log: {e}")
+
+
+def _broadcast_status_sync(
+    execution_id: int,
+    status: str,
+    node_id: int | None = None,
+    node_name: str | None = None,
+    started_at=None,
+    finished_at=None
+):
+    try:
+        _run_async(send_status_update(execution_id, status, node_id, node_name, started_at, finished_at))
+    except Exception as e:
+        logger.warning(f"Failed to broadcast status: {e}")
+
+
+def _broadcast_complete_sync(execution_id: int, status: str, finished_at: datetime):
+    try:
+        _run_async(send_execution_complete(execution_id, status, finished_at))
+    except Exception as e:
+        logger.warning(f"Failed to broadcast complete: {e}")
+
+
+def _run_execution_internal(execution_id: int, is_retry: bool = False, skip_node_ids: Set[int] | None = None):
     db = SessionLocal()
+    skip_node_ids = skip_node_ids or set()
     try:
         task_execution = db.query(TaskExecution).filter(
             TaskExecution.id == execution_id
@@ -105,6 +184,10 @@ def run_execution(execution_id: int):
         execution_order = topological_sort(nodes, edges)
 
         task_execution.status = "running"
+        task_execution.started_at = datetime.now(timezone.utc)
+        task_execution.finished_at = None
+        if is_retry:
+            task_execution.retry_count = (task_execution.retry_count or 0) + 1
         db.commit()
 
         node_map = {node.id: node for node in nodes}
@@ -115,14 +198,41 @@ def run_execution(execution_id: int):
             ).all()
         }
 
+        for node_id in skip_node_ids:
+            if node_id in node_executions:
+                ne = node_executions[node_id]
+                _broadcast_status_sync(
+                    execution_id, ne.status, node_id,
+                    node_map[node_id].name if node_id in node_map else None,
+                    ne.started_at, ne.finished_at
+                )
+                if ne.log:
+                    for line in ne.log.strip().split('\n'):
+                        if line.strip():
+                            _broadcast_log_sync(
+                                execution_id, node_id,
+                                node_map[node_id].name if node_id in node_map else str(node_id),
+                                line
+                            )
+
         dag_failed = False
         for node_id in execution_order:
             node = node_map[node_id]
             ne = node_executions[node_id]
 
+            if node_id in skip_node_ids:
+                continue
+
             ne.status = "running"
             ne.started_at = datetime.now(timezone.utc)
+            ne.finished_at = None
+            ne.log = ""
             db.commit()
+
+            _broadcast_status_sync(
+                execution_id, "running", node_id, node.name, ne.started_at
+            )
+            _broadcast_log_sync(execution_id, node_id, node.name, f"▶ 开始执行节点: {node.name}", "info")
 
             log_output = ""
             try:
@@ -135,23 +245,35 @@ def run_execution(execution_id: int):
                     log_output += f"=== STDERR ===\n{stderr}\n"
                 log_output += f"=== Exit code: {returncode} ==="
 
+                for line in (stdout + stderr).strip().split('\n'):
+                    if line.strip():
+                        _broadcast_log_sync(execution_id, node_id, node.name, line)
+
                 if returncode == 0:
                     ne.status = "success"
+                    _broadcast_log_sync(execution_id, node_id, node.name, f"✅ 节点执行成功: {node.name}", "success")
                 else:
                     ne.status = "failed"
                     dag_failed = True
+                    _broadcast_log_sync(execution_id, node_id, node.name, f"❌ 节点执行失败: {node.name} (退出码: {returncode})", "error")
             except subprocess.TimeoutExpired:
                 ne.status = "failed"
                 log_output = "Execution timed out after 3600 seconds"
                 dag_failed = True
+                _broadcast_log_sync(execution_id, node_id, node.name, f"⏱ 节点执行超时: {node.name}", "error")
             except Exception as e:
                 ne.status = "failed"
                 log_output = f"Execution error: {str(e)}"
                 dag_failed = True
+                _broadcast_log_sync(execution_id, node_id, node.name, f"⚠ 节点执行异常: {str(e)}", "error")
 
             ne.log = log_output
             ne.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+            _broadcast_status_sync(
+                execution_id, ne.status, node_id, node.name, ne.started_at, ne.finished_at
+            )
 
             if dag_failed:
                 remaining_start = execution_order.index(node_id) + 1
@@ -159,18 +281,105 @@ def run_execution(execution_id: int):
                     remaining_ne = node_executions[remaining_node_id]
                     remaining_ne.status = "skipped"
                     remaining_ne.log = "Skipped due to upstream failure"
+                    remaining_ne.started_at = None
+                    remaining_ne.finished_at = None
                     db.commit()
+                    _broadcast_status_sync(
+                        execution_id, "skipped", remaining_node_id,
+                        node_map[remaining_node_id].name if remaining_node_id in node_map else None
+                    )
                 break
 
-        task_execution.status = "success" if not dag_failed else "failed"
+        final_status = "success" if not dag_failed else "failed"
+        task_execution.status = final_status
         task_execution.finished_at = datetime.now(timezone.utc)
         db.commit()
+
+        _broadcast_complete_sync(execution_id, final_status, task_execution.finished_at)
     except Exception as e:
         logger.error(f"Error in run_execution {execution_id}: {e}", exc_info=True)
         if 'task_execution' in locals():
             task_execution.status = "failed"
             task_execution.finished_at = datetime.now(timezone.utc)
             db.commit()
+            _broadcast_complete_sync(execution_id, "failed", task_execution.finished_at)
+    finally:
+        db.close()
+
+
+def run_execution(execution_id: int):
+    _run_execution_internal(execution_id, is_retry=False)
+
+
+def retry_execution(execution_id: int) -> TaskExecution:
+    db = SessionLocal()
+    try:
+        task_execution = db.query(TaskExecution).filter(
+            TaskExecution.id == execution_id
+        ).first()
+        if not task_execution:
+            raise ValueError(f"Execution {execution_id} not found")
+
+        if task_execution.status == "running":
+            raise ValueError(f"Execution {execution_id} is already running")
+
+        dag = db.query(DAG).filter(DAG.id == task_execution.dag_id).first()
+        if not dag:
+            raise ValueError(f"DAG {task_execution.dag_id} not found")
+
+        nodes = db.query(DAGNode).filter(DAGNode.dag_id == dag.id).all()
+        edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
+
+        if not nodes:
+            raise ValueError(f"DAG {dag.id} has no nodes")
+
+        execution_order = topological_sort(nodes, edges)
+
+        node_executions = {
+            ne.node_id: ne
+            for ne in db.query(NodeExecution).filter(
+                NodeExecution.task_execution_id == execution_id
+            ).all()
+        }
+
+        existing_node_ids = set(node_executions.keys())
+        for node_id in execution_order:
+            if node_id not in existing_node_ids:
+                ne = NodeExecution(
+                    task_execution_id=task_execution.id,
+                    node_id=node_id,
+                    status="pending"
+                )
+                db.add(ne)
+                node_executions[node_id] = ne
+
+        db.commit()
+
+        skip_node_ids: Set[int] = set()
+        for node_id in execution_order:
+            ne = node_executions[node_id]
+            if ne.status == "success":
+                skip_node_ids.add(node_id)
+            else:
+                ne.status = "pending"
+                ne.started_at = None
+                ne.finished_at = None
+                ne.log = ""
+
+        db.commit()
+        db.refresh(task_execution)
+        db.close()
+
+        _run_execution_internal(execution_id, is_retry=True, skip_node_ids=skip_node_ids)
+
+        db = SessionLocal()
+        task_execution = db.query(TaskExecution).filter(
+            TaskExecution.id == execution_id
+        ).first()
+        return task_execution
+    except Exception as e:
+        logger.error(f"Error in retry_execution {execution_id}: {e}", exc_info=True)
+        raise
     finally:
         db.close()
 
@@ -193,6 +402,7 @@ def execute_dag(dag_id: int) -> TaskExecution:
         task_execution = TaskExecution(
             dag_id=dag_id,
             status="pending",
+            retry_count=0,
             started_at=datetime.now(timezone.utc)
         )
         db.add(task_execution)

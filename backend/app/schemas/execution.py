@@ -30,6 +30,7 @@ class TaskExecutionCreate(TaskExecutionBase):
 
 class TaskExecution(TaskExecutionBase):
     id: int
+    retry_count: int = 0
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime
@@ -45,3 +46,19 @@ class LogEntry(BaseModel):
     message: str
     timestamp: datetime
     level: str = "info"
+
+
+class StatusUpdate(BaseModel):
+    type: str = "status_update"
+    node_id: Optional[int] = None
+    node_name: Optional[str] = None
+    status: str
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
+class ExecutionComplete(BaseModel):
+    type: str = "execution_complete"
+    execution_id: int
+    status: str
+    finished_at: datetime

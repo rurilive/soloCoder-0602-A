@@ -1,5 +1,5 @@
 import api from './request'
-import type { User, Token, DAG, DAGNode, DAGEdge, TaskExecution } from '../types'
+import type { User, Token, DAG, DAGNode, DAGEdge, TaskExecution, NodeLog } from '../types'
 
 export const authApi = {
   register: (username: string, password: string) =>
@@ -62,5 +62,15 @@ export const executionApi = {
 
   get: (id: number) => api.get<TaskExecution>(`/executions/${id}`),
 
-  getLogs: (id: number) => api.get(`/executions/${id}/logs`)
+  getLogs: (id: number) => api.get<NodeLog[]>(`/executions/${id}/logs`),
+
+  retry: (id: number) => api.post<TaskExecution>(`/executions/${id}/retry`),
+
+  getWsUrl: (executionId: number): string => {
+    const token = localStorage.getItem('token') || ''
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = window.location.hostname
+    const port = 1111
+    return `${proto}//${host}:${port}/api/executions/ws/${executionId}?token=${encodeURIComponent(token)}`
+  }
 }
