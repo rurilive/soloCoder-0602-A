@@ -319,13 +319,50 @@ def run_execution(execution_id: int):
 
 def retry_execution(execution_id: int) -> TaskExecution:
     skip_node_ids: Set[int] = set()
+    failed = False
+
     prepare_db = SessionLocal()
     try:
         skip_node_ids = _prepare_retry_internal(prepare_db, execution_id)
+    except Exception as e:
+        logger.error(f"Error in retry_execution prepare phase {execution_id}: {e}", exc_info=True)
+        failed = True
+        try:
+            task_execution = prepare_db.query(TaskExecution).filter(
+                TaskExecution.id == execution_id
+            ).first()
+            if task_execution:
+                task_execution.status = "failed"
+                task_execution.finished_at = datetime.now(timezone.utc)
+                prepare_db.commit()
+                _broadcast_complete_sync(execution_id, "failed", task_execution.finished_at)
+        except Exception:
+            pass
+        raise
     finally:
         prepare_db.close()
 
-    _run_execution_internal(execution_id, init_status=False, skip_node_ids=skip_node_ids)
+    if not failed:
+        try:
+            _run_execution_internal(execution_id, init_status=False, skip_node_ids=skip_node_ids)
+        except Exception as e:
+            logger.error(f"Error in retry_execution run phase {execution_id}: {e}", exc_info=True)
+            failed = True
+            rollback_db = SessionLocal()
+            try:
+                task_execution = rollback_db.query(TaskExecution).filter(
+                    TaskExecution.id == execution_id
+                ).first()
+                if task_execution and task_execution.status == "running":
+                    task_execution.status = "failed"
+                    task_execution.finished_at = datetime.now(timezone.utc)
+                    rollback_db.commit()
+                    _broadcast_complete_sync(execution_id, "failed", task_execution.finished_at)
+            except Exception:
+                pass
+            finally:
+                rollback_db.close()
+            raise
 
     result_db = SessionLocal()
     try:
