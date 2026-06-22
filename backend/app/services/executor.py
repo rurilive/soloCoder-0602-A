@@ -189,6 +189,13 @@ def _run_execution_internal(execution_id: int, init_status: bool = True, skip_no
             task_execution.finished_at = None
             db.commit()
 
+        _broadcast_status_sync(
+            execution_id, "running",
+            node_id=None, node_name=None,
+            started_at=task_execution.started_at,
+            finished_at=None
+        )
+
         node_map = {node.id: node for node in nodes}
         node_executions = {
             ne.node_id: ne
@@ -311,23 +318,23 @@ def run_execution(execution_id: int):
 
 
 def retry_execution(execution_id: int) -> TaskExecution:
-    db = SessionLocal()
+    skip_node_ids: Set[int] = set()
+    prepare_db = SessionLocal()
     try:
-        skip_node_ids = _prepare_retry_internal(db, execution_id)
-        db.close()
+        skip_node_ids = _prepare_retry_internal(prepare_db, execution_id)
+    finally:
+        prepare_db.close()
 
-        _run_execution_internal(execution_id, init_status=False, skip_node_ids=skip_node_ids)
+    _run_execution_internal(execution_id, init_status=False, skip_node_ids=skip_node_ids)
 
-        db = SessionLocal()
-        task_execution = db.query(TaskExecution).filter(
+    result_db = SessionLocal()
+    try:
+        task_execution = result_db.query(TaskExecution).filter(
             TaskExecution.id == execution_id
         ).first()
         return task_execution
-    except Exception as e:
-        logger.error(f"Error in retry_execution {execution_id}: {e}", exc_info=True)
-        raise
     finally:
-        db.close()
+        result_db.close()
 
 
 def prepare_retry(execution_id: int, owner_id: int) -> Set[int]:
