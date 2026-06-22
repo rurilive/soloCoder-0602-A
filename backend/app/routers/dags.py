@@ -167,6 +167,7 @@ def trigger_dag(
     task_execution = TaskExecution(
         dag_id=dag_id,
         status="pending",
+        retry_count=0,
         started_at=datetime.now(timezone.utc)
     )
     db.add(task_execution)

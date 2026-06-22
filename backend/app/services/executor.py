@@ -165,7 +165,7 @@ def _broadcast_complete_sync(execution_id: int, status: str, finished_at: dateti
         logger.warning(f"Failed to broadcast complete: {e}")
 
 
-def _run_execution_internal(execution_id: int, is_retry: bool = False, skip_node_ids: Set[int] | None = None):
+def _run_execution_internal(execution_id: int, init_status: bool = True, skip_node_ids: Set[int] | None = None):
     db = SessionLocal()
     skip_node_ids = skip_node_ids or set()
     try:
@@ -183,12 +183,11 @@ def _run_execution_internal(execution_id: int, is_retry: bool = False, skip_node
         edges = db.query(DAGEdge).filter(DAGEdge.dag_id == dag.id).all()
         execution_order = topological_sort(nodes, edges)
 
-        task_execution.status = "running"
-        task_execution.started_at = datetime.now(timezone.utc)
-        task_execution.finished_at = None
-        if is_retry:
-            task_execution.retry_count = (task_execution.retry_count or 0) + 1
-        db.commit()
+        if init_status:
+            task_execution.status = "running"
+            task_execution.started_at = datetime.now(timezone.utc)
+            task_execution.finished_at = None
+            db.commit()
 
         node_map = {node.id: node for node in nodes}
         node_executions = {
@@ -308,7 +307,7 @@ def _run_execution_internal(execution_id: int, is_retry: bool = False, skip_node
 
 
 def run_execution(execution_id: int):
-    _run_execution_internal(execution_id, is_retry=False)
+    _run_execution_internal(execution_id, init_status=True)
 
 
 def retry_execution(execution_id: int) -> TaskExecution:
@@ -317,7 +316,7 @@ def retry_execution(execution_id: int) -> TaskExecution:
         skip_node_ids = _prepare_retry_internal(db, execution_id)
         db.close()
 
-        _run_execution_internal(execution_id, is_retry=False, skip_node_ids=skip_node_ids)
+        _run_execution_internal(execution_id, init_status=False, skip_node_ids=skip_node_ids)
 
         db = SessionLocal()
         task_execution = db.query(TaskExecution).filter(
@@ -425,9 +424,9 @@ def _prepare_retry_internal(db: Session, execution_id: int) -> Set[int]:
 
 
 def run_retry_only(execution_id: int, skip_node_ids: Set[int]):
-    """只执行重试的运行阶段（不做准备、不递增retry_count），配合prepare_retry使用。"""
+    """只执行重试的运行阶段（不做准备、不初始化状态），配合prepare_retry使用。"""
     try:
-        _run_execution_internal(execution_id, is_retry=False, skip_node_ids=skip_node_ids)
+        _run_execution_internal(execution_id, init_status=False, skip_node_ids=skip_node_ids)
     except Exception as e:
         logger.error(f"Error in run_retry_only {execution_id}: {e}", exc_info=True)
         raise
